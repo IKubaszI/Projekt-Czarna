@@ -2612,7 +2612,7 @@ def get_active_project_info():
                 "kontekst_czasowy": "XIX wiek",
                 "rok_zrodlowy": 1880,
                 "okres_danych": "1850-1900",
-                "region": "Powiat Mielecki",
+                "region": "Powiat Pilźnieński",
                 "wojewodztwo": "Podkarpackie",
                 "opis": "System mapy katastralnej dla miejscowości Czarna"
             }

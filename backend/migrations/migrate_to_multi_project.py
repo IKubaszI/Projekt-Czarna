@@ -130,7 +130,7 @@ def migrate():
                         'XIX wiek',
                         1880,
                         '1850-1900',
-                        'Powiat Mielecki',
+                        'Powiat Pilźnieński',
                         'Podkarpackie',
                         'Polski',
                         'aktywny',

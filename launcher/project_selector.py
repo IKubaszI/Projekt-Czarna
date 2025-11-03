@@ -46,26 +46,25 @@ class ProjectSelectorFrame(ttk.Frame):
     def _init_project_manager(self):
         """Inicjalizuje menedżera projektów."""
         if ProjectManager is None:
-            messagebox.showerror(
-                "Błąd",
-                "Nie można załadować modułu zarządzania projektami.\n"
-                "Upewnij się, że plik project_manager.py istnieje w katalogu backend."
-            )
+            print("⚠️ Moduł ProjectManager niedostępny")
             return
 
         try:
             self.project_manager = ProjectManager(self.db_config)
         except Exception as e:
-            messagebox.showerror(
-                "Błąd połączenia",
-                f"Nie można połączyć się z bazą danych:\n{e}"
-            )
+            print(f"⚠️ Nie można zainicjalizować ProjectManager: {e}")
+            self.project_manager = None
 
     def _create_widgets(self):
         """Tworzy widgety interfejsu."""
         # Główny kontener
         container = ttk.Frame(self)
         container.pack(fill=tk.X, padx=5, pady=5)
+
+        # Sprawdź czy system projektów jest dostępny
+        if not self.project_manager:
+            self._create_initialization_widget(container)
+            return
 
         # Label
         label = ttk.Label(container, text="📁 Projekt:", font=('Arial', 10, 'bold'))
@@ -106,6 +105,115 @@ class ProjectSelectorFrame(ttk.Frame):
             command=self._open_edit_project_dialog
         )
         edit_btn.pack(side=tk.LEFT)
+
+    def _create_initialization_widget(self, container):
+        """Tworzy widget informujący o braku systemu projektów."""
+        # Ikona i komunikat
+        info_frame = ttk.Frame(container)
+        info_frame.pack(fill=tk.X)
+
+        label = ttk.Label(
+            info_frame,
+            text="⚠️ System projektów nie jest zainicjalizowany",
+            font=('Arial', 10, 'bold'),
+            foreground='orange'
+        )
+        label.pack(side=tk.LEFT, padx=(0, 10))
+
+        # Przycisk inicjalizacji
+        init_btn = ttk.Button(
+            info_frame,
+            text="🔧 Uruchom Migrację",
+            command=self._run_migration
+        )
+        init_btn.pack(side=tk.LEFT, padx=(0, 5))
+
+        # Przycisk pomocy
+        help_btn = ttk.Button(
+            info_frame,
+            text="❓ Pomoc",
+            command=self._show_help
+        )
+        help_btn.pack(side=tk.LEFT)
+
+    def _run_migration(self):
+        """Uruchamia script migracyjny."""
+        response = messagebox.askyesno(
+            "Inicjalizacja systemu projektów",
+            "Czy chcesz uruchomić migrację do systemu multi-projektowego?\n\n"
+            "To utworzy:\n"
+            "• Tabelę 'projects' w bazie danych\n"
+            "• Dodanie 'Czarna' jako pierwszy projekt\n"
+            "• Ustawienie Czarnej jako aktywny projekt\n\n"
+            "Istniejące dane pozostaną nietknięte."
+        )
+
+        if not response:
+            return
+
+        import subprocess
+        import os
+
+        # Znajdź ścieżkę do scriptu migracyjnego
+        backend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'backend')
+        migration_script = os.path.join(backend_dir, 'migrations', 'migrate_to_multi_project.py')
+
+        if not os.path.exists(migration_script):
+            messagebox.showerror(
+                "Błąd",
+                f"Nie znaleziono scriptu migracyjnego:\n{migration_script}"
+            )
+            return
+
+        try:
+            # Uruchom migrację
+            result = subprocess.run(
+                ['python', migration_script],
+                cwd=backend_dir,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            if result.returncode == 0:
+                messagebox.showinfo(
+                    "Sukces",
+                    "Migracja zakończona pomyślnie!\n\n"
+                    "System projektów jest teraz aktywny.\n"
+                    "Uruchom ponownie launcher aby zobaczyć zmiany."
+                )
+            else:
+                messagebox.showerror(
+                    "Błąd migracji",
+                    f"Migracja zakończyła się błędem:\n\n{result.stderr}"
+                )
+        except subprocess.TimeoutExpired:
+            messagebox.showerror("Błąd", "Migracja przekroczyła limit czasu (30s)")
+        except Exception as e:
+            messagebox.showerror("Błąd", f"Nie można uruchomić migracji:\n{e}")
+
+    def _show_help(self):
+        """Pokazuje okno pomocy."""
+        help_text = """
+System Multi-Projektowy - Pomoc
+
+System projektów pozwala zarządzać wieloma instancjami
+miejscowości (Czarna, Borowa, etc.) w jednej aplikacji.
+
+Aby zainicjalizować system:
+
+1. Kliknij "🔧 Uruchom Migrację"
+2. Potwierdź uruchomienie migracji
+3. Poczekaj na zakończenie
+4. Uruchom ponownie launcher
+
+Alternatywnie możesz uruchomić ręcznie:
+cd backend
+python migrations/migrate_to_multi_project.py
+
+Więcej informacji w pliku MULTI_PROJECT_SETUP.md
+"""
+        messagebox.showinfo("Pomoc - System Projektów", help_text.strip())
 
     def refresh_projects(self):
         """Odświeża listę projektów."""
@@ -332,7 +440,9 @@ class ProjectEditorDialog(tk.Toplevel):
 
         entry = ttk.Entry(frame)
         entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        entry.insert(0, placeholder)
+
+        # Nie wstawiaj placeholderów jako wartości domyślnych
+        # entry.insert(0, placeholder)
 
         return entry
 

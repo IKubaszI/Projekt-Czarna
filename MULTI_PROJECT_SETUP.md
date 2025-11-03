@@ -113,7 +113,7 @@ curl -X POST http://127.0.0.1:5000/api/projects \
     "kontekst_czasowy": "XIX wiek",
     "rok_zrodlowy": 1880,
     "okres_danych": "1850-1900",
-    "region": "Powiat Mielecki",
+    "region": "Powiat Pilźnieński",
     "wojewodztwo": "Podkarpackie",
     "jezyk_zrodel": "Polski",
     "opis": "System mapy katastralnej dla Borowej"
@@ -128,8 +128,207 @@ INSERT INTO projects (
     rok_zrodlowy, okres_danych, region, wojewodztwo
 ) VALUES (
     'borowa', 'Borowa', 'Gmina Borowa', 'XIX wiek',
-    1880, '1850-1900', 'Powiat Mielecki', 'Podkarpackie'
+    1880, '1850-1900', 'Powiat Pilźnieński', 'Podkarpackie'
 );
+```
+
+## 📂 Gdzie Będą Dane Dla Nowych Projektów?
+
+### Struktura Katalogów
+
+Dla każdego nowego projektu automatycznie tworzona jest struktura:
+
+```
+projects/
+├── czarna/                    # Projekt Czarna (istniejący)
+│   ├── data/                  # JSON backupy (opcjonalne)
+│   ├── geojson/               # Pliki GeoJSON (opcjonalne)
+│   └── backups/               # Backupy bazy danych
+├── borowa/                    # Nowy projekt - Borowa
+│   ├── data/
+│   ├── geojson/
+│   └── backups/
+└── inna_miejscowosc/          # Kolejny projekt
+    ├── data/
+    ├── geojson/
+    └── backups/
+```
+
+**UWAGA:** Foldery `projects/` służą jako opcjonalne miejsce na:
+- Backupy JSON (jeśli używane)
+- Pliki GeoJSON z działkami
+- Backupy SQL bazy danych
+
+### Główne Dane - Bazy PostgreSQL
+
+Główne dane projektu (właściciele, działki, genealogia) są przechowywane w:
+
+#### Opcja A: Osobne Bazy (domyślnie, `use_separate_db=true`)
+
+Każdy projekt ma własną bazę danych PostgreSQL:
+
+```
+PostgreSQL Server:
+├── mapa_czarna_db          # Baza master + dane Czarnej
+│   ├── projects (tabela)   # Metadane wszystkich projektów
+│   ├── wlasciciele         # Właściciele Czarnej
+│   ├── obiekty_geograficzne # Działki Czarnej
+│   └── ...
+├── borowa_db               # Osobna baza dla Borowej
+│   ├── wlasciciele         # Właściciele Borowej
+│   ├── obiekty_geograficzne # Działki Borowej
+│   └── ...
+└── inna_miejscowosc_db     # Kolejna baza
+    └── ...
+```
+
+**Zalety:**
+- ✅ Pełna izolacja danych
+- ✅ Łatwe backupy per projekt
+- ✅ Możliwość różnych serwerów DB
+
+**Wady:**
+- ⚠️ Więcej baz do zarządzania
+- ⚠️ Backup każdej bazy osobno
+
+#### Opcja B: Schematy w Jednej Bazie (`use_separate_db=false`)
+
+Wszystkie projekty w jednej bazie, różne schematy:
+
+```
+PostgreSQL: mapa_czarna_db
+├── public (schema)           # Baza master
+│   └── projects (tabela)     # Metadane projektów
+├── czarna (schema)           # Dane Czarnej
+│   ├── wlasciciele
+│   ├── obiekty_geograficzne
+│   └── ...
+├── borowa (schema)           # Dane Borowej
+│   ├── wlasciciele
+│   ├── obiekty_geograficzne
+│   └── ...
+└── inna_miejscowosc (schema)
+    └── ...
+```
+
+**Zalety:**
+- ✅ Jeden backup dla wszystkiego
+- ✅ Łatwiejsze zarządzanie
+- ✅ Jedno połączenie DB
+
+**Wady:**
+- ⚠️ Większa baza danych
+- ⚠️ Mniejsza separacja
+
+### Jak Wybrać Tryb?
+
+Przy tworzeniu projektu ustaw pole `use_separate_db`:
+
+```python
+# Tryb: Osobna baza
+project_manager.create_project({
+    'short_code': 'borowa',
+    'nazwa': 'Borowa',
+    'db_name': 'borowa_db',
+    'use_separate_db': True  # ← Osobna baza
+})
+
+# Tryb: Schema w jednej bazie
+project_manager.create_project({
+    'short_code': 'trzebinia',
+    'nazwa': 'Trzebinia',
+    'db_schema': 'trzebinia',
+    'use_separate_db': False  # ← Schema w mapa_czarna_db
+})
+```
+
+### Import Danych Do Nowego Projektu
+
+Po utworzeniu projektu musisz zaimportować dane:
+
+**1. Przez Migrację z JSON:**
+```bash
+# Przełącz na nowy projekt
+curl -X POST http://127.0.0.1:5000/api/projects/switch/2
+
+# Uruchom migrację danych
+python backend/migrate_data.py
+```
+
+**2. Przez Import SQL:**
+```bash
+# Backup z innego systemu
+pg_dump -h localhost -U postgres old_db > backup.sql
+
+# Import do nowej bazy projektu
+psql -h localhost -U postgres borowa_db < backup.sql
+```
+
+**3. Przez Edytory GUI:**
+- Uruchom launcher
+- Przełącz na nowy projekt
+- Użyj edytorów (Właściciele, Działki, Genealogia) do wprowadzenia danych
+
+### Przenoszenie Istniejących Danych
+
+Jeśli masz dane dla innej miejscowości:
+
+**Krok 1:** Utwórz nowy projekt w systemie
+```bash
+python backend/migrations/migrate_to_multi_project.py  # Raz
+# Potem dodaj projekt przez GUI lub API
+```
+
+**Krok 2:** Przygotuj strukturę bazy (jeśli osobna baza)
+```sql
+-- System automatycznie utworzy bazę przy pierwszym użyciu
+-- lub ręcznie:
+CREATE DATABASE borowa_db ENCODING 'UTF8';
+```
+
+**Krok 3:** Zaimportuj strukturę tabel
+```bash
+# Użyj struktury z Czarnej jako szablon
+pg_dump -s -h localhost -U postgres mapa_czarna_db > structure.sql
+psql -h localhost -U postgres borowa_db < structure.sql
+```
+
+**Krok 4:** Zaimportuj dane
+```bash
+# Z plików JSON
+python backend/migrate_data.py
+
+# Lub z SQL dump
+psql -h localhost -U postgres borowa_db < dane_borowej.sql
+```
+
+### Przykład Pełnego Workflow
+
+```bash
+# 1. Utwórz nowy projekt
+curl -X POST http://127.0.0.1:5000/api/projects \
+  -H "Content-Type: application/json" \
+  -d '{
+    "short_code": "borowa",
+    "nazwa": "Borowa",
+    "db_name": "borowa_db",
+    "use_separate_db": true
+  }'
+
+# 2. Przełącz na nowy projekt
+curl -X POST http://127.0.0.1:5000/api/projects/switch/2
+
+# 3. Restart serwera
+# (lub restart przez launcher)
+
+# 4. Zaimportuj dane
+# Metoda A: przez JSON
+python backend/migrate_data.py
+
+# Metoda B: przez SQL
+psql -U postgres borowa_db < dane_borowej.sql
+
+# 5. Gotowe! Przeglądaj w aplikacji
 ```
 
 ## 🔄 Przełączanie Między Projektami
