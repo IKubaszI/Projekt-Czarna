@@ -27,10 +27,10 @@ let selectedForCompare = [];
 let highlightedLayer = null;
 let ownerHighlightLayer = null;
 
-/* Paleta kolorów dla właścicieli */
+/* Paleta kolorów dla właścicieli - bardziej kontrastowe i wyraziste */
 const HIGHLIGHT_COLORS = [
-    "#E6194B", "#F58231", "#FFE119", "#BFDF45", "#3CB44B",
-    "#42D4F4", "#4363D8", "#911EB4", "#F032E6", "#A9A9A9"
+    "#FF1493", "#FF4500", "#FFD700", "#00FF00", "#00CED1",
+    "#1E90FF", "#8A2BE2", "#FF1493", "#FF69B4", "#FFA500"
 ];
 
 /* Cache dla szybkiego dostępu do warstw */
@@ -337,7 +337,7 @@ function renderMapObjects(parcels) {
             fillColor: "#1abc9c",
             fillOpacity: 0.5,
         },
-        droga: { color: "#8B4513", weight: 3 },
+        droga: { color: "#8B4513", weight: 3 },  // Brązowy kolor dla dróg
         rzeka: { color: "#3498db", weight: 4 },
         pastwisko: {
             color: "#f1c40f",
@@ -406,18 +406,13 @@ function renderMapObjects(parcels) {
             }
             layer.bindPopup(popupContent);
 
-            /* OPTYMALIZACJA: Etykiety tylko na wysokim zoomie (>15) - oszczędność DOM */
+            /* Dodawanie etykiet do obiektów niepunktowych */
             if (props.numer_obiektu && feature.geometry.type !== 'Point') {
-                const tooltipText = props.numer_obiektu.toString();
-                const tooltipOptions = {
-                    permanent: false,  // Zmienione z true na false - warunkowe wyświetlanie
+                layer.bindTooltip(props.numer_obiektu.toString(), {
+                    permanent: true,
                     direction: 'center',
                     className: 'parcel-label'
-                };
-                layer.bindTooltip(tooltipText, tooltipOptions);
-
-                // Przechowujemy info o tooltip dla warunkowego wyświetlania
-                layer._tooltipText = tooltipText;
+                });
             }
 
             /* Zdarzenia interakcji */
@@ -429,41 +424,8 @@ function renderMapObjects(parcels) {
         },
     }).addTo(map);
 
-    /* OPTYMALIZACJA: Warunkowe wyświetlanie tooltips według zoom */
-    setupConditionalTooltips();
-
     console.log("✅ Zakończono rysowanie obiektów");
     console.log(`📦 Cache zawiera ${layersCache.size} warstw`);
-}
-
-/**
- * OPTYMALIZACJA: Konfiguruje warunkowe wyświetlanie tooltips według poziomu zoom.
- * Wyświetla etykiety działek tylko gdy zoom > 13 dla lepszej wydajności.
- */
-function setupConditionalTooltips() {
-    const ZOOM_THRESHOLD = 13;  // Obniżony próg - napisy widoczne wcześniej
-
-    const updateTooltips = () => {
-        if (!geojsonLayer) return;
-
-        const currentZoom = map.getZoom();
-        const shouldShowTooltips = currentZoom > ZOOM_THRESHOLD;
-
-        geojsonLayer.eachLayer(layer => {
-            if (layer._tooltipText && layer.getTooltip()) {
-                if (shouldShowTooltips && !layer.getTooltip().options.permanent) {
-                    layer.getTooltip().options.permanent = true;
-                    layer.openTooltip();
-                } else if (!shouldShowTooltips && layer.getTooltip().options.permanent) {
-                    layer.getTooltip().options.permanent = false;
-                    layer.closeTooltip();
-                }
-            }
-        });
-    };
-
-    map.on('zoomend', updateTooltips);
-    updateTooltips(); // Inicjalna aktualizacja
 }
 
 /* ==========================================================================
@@ -559,7 +521,7 @@ function setupOwnerPanel() {
             btnRzeczywiste.onclick = (e) => {
                 e.stopPropagation();
                 const ids = owner.dzialki_rzeczywiste.map(p => p.id);
-                highlightFeaturesByIds(ids, 'fuchsia');
+                highlightFeaturesByIds(ids, '#00FFFF');  // Cyan - wyrazisty kolor
             };
         } else {
             btnRzeczywiste.style.display = "none";
@@ -569,7 +531,7 @@ function setupOwnerPanel() {
             btnProtokol.onclick = (e) => {
                 e.stopPropagation();
                 const ids = owner.dzialki_protokol.map(p => p.id);
-                highlightFeaturesByIds(ids, '#ffc107');
+                highlightFeaturesByIds(ids, '#FFFF00');  // Żółty - wyrazisty kolor
             };
         } else {
             btnProtokol.style.display = "none";
@@ -1427,9 +1389,9 @@ function highlightFeaturesByIds(featureIds, color) {
 
     const highlightStyle = {
         color: color,
-        weight: 5,
+        weight: 6,           // Grubsza linia
         fillColor: color,
-        fillOpacity: 0.5,
+        fillOpacity: 0.7,    // Większa przezroczystość dla lepszej widoczności
     };
 
     /* OPTYMALIZACJA: Bezpośredni dostęp do warstw przez cache */
@@ -1593,7 +1555,7 @@ function handleUrlParameters() {
 
     /* Zastosowanie podświetleń */
     if (idsToHighlight.size > 0) {
-        highlightFeaturesByIds(Array.from(idsToHighlight), 'fuchsia');
+        highlightFeaturesByIds(Array.from(idsToHighlight), '#FF00FF');  // Magenta - wyrazisty kolor
     }
     
     if (popupInfo) {
@@ -2219,27 +2181,27 @@ function processLayerForOwnerHighlight(layer, ownerColorMap, ownershipType) {
         ? (isReal ? ownerColorMap[ownerKey].rzeczywista : ownerColorMap[ownerKey].protokol)
         : ownerColorMap[ownerKey];
         
-    /* Tworzenie sklonowanej warstwy */
+    /* Tworzenie sklonowanej warstwy - bardziej wyraziste kolory */
     let clonedLayer;
     if (layer instanceof L.Polygon) {
-        clonedLayer = L.polygon(layer.getLatLngs(), { 
-            color, 
-            weight: 3, 
-            fillColor: color, 
-            fillOpacity: 0.6 
+        clonedLayer = L.polygon(layer.getLatLngs(), {
+            color,
+            weight: 5,           // Grubsza linia
+            fillColor: color,
+            fillOpacity: 0.7     // Większa przezroczystość
         });
     } else if (layer instanceof L.Polyline) {
-        clonedLayer = L.polyline(layer.getLatLngs(), { 
-            color, 
-            weight: 5 
+        clonedLayer = L.polyline(layer.getLatLngs(), {
+            color,
+            weight: 6            // Grubsza linia
         });
     } else if (layer instanceof L.Marker) {
-        clonedLayer = L.circleMarker(layer.getLatLng(), { 
-            radius: 10, 
-            color: 'black', 
-            weight: 2, 
-            fillColor: color, 
-            fillOpacity: 1 
+        clonedLayer = L.circleMarker(layer.getLatLng(), {
+            radius: 12,          // Większy promień
+            color: 'black',
+            weight: 3,           // Grubsza obwódka
+            fillColor: color,
+            fillOpacity: 1
         });
     }
 

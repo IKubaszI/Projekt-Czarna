@@ -924,6 +924,9 @@ html, body {
 #owner-highlight-legend {
     padding: 15px;
     min-width: 250px;
+    max-width: 300px;
+    max-height: 400px;
+    overflow-y: auto;
 }
 
 #owner-highlight-legend.hidden {
@@ -932,6 +935,8 @@ html, body {
 
 #owner-highlight-legend ul {
     list-style: none;
+    margin: 0;
+    padding: 0;
 }
 
 #owner-highlight-legend li {
