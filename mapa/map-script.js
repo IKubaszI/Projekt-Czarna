@@ -372,6 +372,16 @@ function renderMapObjects(parcels) {
             }
             marker.bindPopup(popupContent);
 
+            /* Dodawanie etykiet z numerami - zawsze widocznych */
+            if (props.numer_obiektu) {
+                marker.bindTooltip(props.numer_obiektu.toString(), {
+                    permanent: true,
+                    direction: 'bottom',
+                    className: 'parcel-label point-label',
+                    offset: [0, 10]
+                });
+            }
+
             /* Dodaj feature do markera dla późniejszego dostępu */
             marker.feature = feature;
 
