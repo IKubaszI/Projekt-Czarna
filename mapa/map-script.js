@@ -36,6 +36,10 @@ const HIGHLIGHT_COLORS = [
 /* Cache dla szybkiego dostępu do warstw */
 let layersCache = new Map();
 
+/* Cache właścicieli według ID dla szybkiego dostępu */
+let ownersIndexById = new Map();
+let ownersIndexByKey = new Map();
+
 /* ==========================================================================
    FUNKCJE POMOCNICZE - OPTYMALIZACJA WYDAJNOŚCI
    ========================================================================== */
@@ -207,6 +211,26 @@ function initializeMap() {
    ========================================================================== */
 
 /**
+ * Buduje index właścicieli dla szybkiego dostępu O(1).
+ * OPTYMALIZACJA: Eliminuje potrzebę używania find() na tablicy
+ */
+function buildOwnersIndex() {
+    ownersIndexById.clear();
+    ownersIndexByKey.clear();
+
+    allOwnersData.forEach(owner => {
+        if (owner.id) {
+            ownersIndexById.set(owner.id, owner);
+        }
+        if (owner.unikalny_klucz) {
+            ownersIndexByKey.set(owner.unikalny_klucz, owner);
+        }
+    });
+
+    console.log(`📇 Index właścicieli: ${ownersIndexById.size} wpisów`);
+}
+
+/**
  * Pobiera dane z API i buduje interfejs użytkownika.
  * Obsługuje stany ładowania i błędy.
  */
@@ -261,6 +285,9 @@ function fetchDataAndBuildInterface() {
 
         allOwnersData = wlascicieleResponse.owners;
         allParcelsData = dzialkiData.features;
+
+        /* OPTYMALIZACJA: Budujemy index właścicieli dla szybkiego dostępu */
+        buildOwnersIndex();
 
         const metadata = wlascicieleResponse.metadata;
         const sortByOrderBtn = document.getElementById("sortByOrderBtn");
@@ -379,13 +406,18 @@ function renderMapObjects(parcels) {
             }
             layer.bindPopup(popupContent);
 
-            /* Dodawanie etykiet do obiektów niepunktowych */
+            /* OPTYMALIZACJA: Etykiety tylko na wysokim zoomie (>15) - oszczędność DOM */
             if (props.numer_obiektu && feature.geometry.type !== 'Point') {
-                layer.bindTooltip(props.numer_obiektu.toString(), {
-                    permanent: true,
+                const tooltipText = props.numer_obiektu.toString();
+                const tooltipOptions = {
+                    permanent: false,  // Zmienione z true na false - warunkowe wyświetlanie
                     direction: 'center',
                     className: 'parcel-label'
-                });
+                };
+                layer.bindTooltip(tooltipText, tooltipOptions);
+
+                // Przechowujemy info o tooltip dla warunkowego wyświetlania
+                layer._tooltipText = tooltipText;
             }
 
             /* Zdarzenia interakcji */
@@ -397,8 +429,41 @@ function renderMapObjects(parcels) {
         },
     }).addTo(map);
 
+    /* OPTYMALIZACJA: Warunkowe wyświetlanie tooltips według zoom */
+    setupConditionalTooltips();
+
     console.log("✅ Zakończono rysowanie obiektów");
     console.log(`📦 Cache zawiera ${layersCache.size} warstw`);
+}
+
+/**
+ * OPTYMALIZACJA: Konfiguruje warunkowe wyświetlanie tooltips według poziomu zoom.
+ * Wyświetla etykiety działek tylko gdy zoom > 15 dla lepszej wydajności.
+ */
+function setupConditionalTooltips() {
+    const ZOOM_THRESHOLD = 15;
+
+    const updateTooltips = () => {
+        if (!geojsonLayer) return;
+
+        const currentZoom = map.getZoom();
+        const shouldShowTooltips = currentZoom > ZOOM_THRESHOLD;
+
+        geojsonLayer.eachLayer(layer => {
+            if (layer._tooltipText && layer.getTooltip()) {
+                if (shouldShowTooltips && !layer.getTooltip().options.permanent) {
+                    layer.getTooltip().options.permanent = true;
+                    layer.openTooltip();
+                } else if (!shouldShowTooltips && layer.getTooltip().options.permanent) {
+                    layer.getTooltip().options.permanent = false;
+                    layer.closeTooltip();
+                }
+            }
+        });
+    };
+
+    map.on('zoomend', updateTooltips);
+    updateTooltips(); // Inicjalna aktualizacja
 }
 
 /* ==========================================================================
@@ -417,16 +482,22 @@ function setupOwnerPanel() {
 
     /**
      * Renderuje listę właścicieli.
+     * OPTYMALIZACJA: Używa DocumentFragment dla szybszego budowania DOM
      * @param {Array} owners - Tablica właścicieli do wyświetlenia
      */
     const render = (owners) => {
         document.getElementById('visible-count').textContent = owners.length;
         ownerContainer.innerHTML = "";
-        
+
+        /* OPTYMALIZACJA: DocumentFragment - batch DOM update */
+        const fragment = document.createDocumentFragment();
+
         owners.forEach(owner => {
             const card = createOwnerCard(owner);
-            ownerContainer.appendChild(card);
+            fragment.appendChild(card);
         });
+
+        ownerContainer.appendChild(fragment);
     };
 
     /**
@@ -524,23 +595,25 @@ function setupOwnerPanel() {
 
     /**
      * Podświetla działki właściciela na mapie.
+     * OPTYMALIZACJA: Używa działek z danych właściciela zamiast przeszukiwania wszystkich warstw
      * @param {Object} owner - Dane właściciela
      * @param {boolean} highlight - Czy podświetlić
      */
     const highlightOwnerParcels = (owner, highlight) => {
         if (!geojsonLayer) return;
-        
-        geojsonLayer.eachLayer(layer => {
-            const ownersOnParcel = layer.feature.properties.wlasciciele;
-            const isOwnerMatch = ownersOnParcel?.some(o => o.id === owner.id);
-            
-            if (isOwnerMatch && layer.setStyle) {
-                if (highlight) {
-                    layer.setStyle({ weight: 5, color: "lime" });
-                    layer.bringToFront();
-                } else {
-                    geojsonLayer.resetStyle(layer);
-                }
+
+        /* OPTYMALIZACJA: Pobieramy ID działek bezpośrednio z właściciela */
+        const parcelIds = (owner.dzialki_rzeczywiste || []).map(p => p.id);
+
+        parcelIds.forEach(parcelId => {
+            const layer = findLayerById(parcelId);
+            if (!layer || !layer.setStyle) return;
+
+            if (highlight) {
+                layer.setStyle({ weight: 5, color: "lime" });
+                if (layer.bringToFront) layer.bringToFront();
+            } else {
+                geojsonLayer.resetStyle(layer);
             }
         });
     };
@@ -686,13 +759,14 @@ function setupParcelPanel() {
 
     /**
      * Renderuje listę działek według aktywnych filtrów.
+     * OPTYMALIZACJA: Używa DocumentFragment dla szybszego budowania DOM
      */
     const render = () => {
         dzialkiContainer.innerHTML = "";
         obiektyContainer.innerHTML = "";
-        
+
         const searchTerm = searchInput.value.toLowerCase();
-        
+
         if (searchTerm === "" && geojsonLayer) {
             geojsonLayer.eachLayer(layer => geojsonLayer.resetStyle(layer));
         }
@@ -713,28 +787,35 @@ function setupParcelPanel() {
             document.querySelectorAll('#parcel-category-filters input:checked')
         ).map(cb => cb.dataset.category);
 
+        /* OPTYMALIZACJA: DocumentFragment - batch DOM update */
+        const dzialkiFragment = document.createDocumentFragment();
+        const obiektyFragment = document.createDocumentFragment();
+
         /* Kategoryzacja działek */
         filteredList.forEach(p => {
             const kategoria = p.properties.kategoria;
             const dzialkiCategories = ["budowlana", "rolna", "las", "pastwisko"];
             const infrastrukturaCategories = ["droga", "rzeka"];
-            
+
             if (!dzialkiCategories.includes(kategoria) && !infrastrukturaCategories.includes(kategoria)) {
                 return;
             }
-            
+
             if (dzialkiCategories.includes(kategoria) && !activeCategories.includes(kategoria)) {
               return;
             }
 
             const item = createParcelItem(p);
-            
+
             if (dzialkiCategories.includes(kategoria)) {
-              dzialkiContainer.appendChild(item);
+              dzialkiFragment.appendChild(item);
             } else {
-              obiektyContainer.appendChild(item);
+              obiektyFragment.appendChild(item);
             }
         });
+
+        dzialkiContainer.appendChild(dzialkiFragment);
+        obiektyContainer.appendChild(obiektyFragment);
 
         /* Podświetlanie dokładnych dopasowań */
         if (searchTerm.length > 0) {
@@ -743,7 +824,7 @@ function setupParcelPanel() {
             );
             exactMatches.forEach(p => findAndHighlightLayer(p.id, true, "orange"));
         }
-        
+
         const totalParcelsElement = document.getElementById('total-parcels');
         if (totalParcelsElement) {
             totalParcelsElement.textContent = allParcelsData.length;
@@ -1227,6 +1308,7 @@ function setupUniversalSearch() {
 
 /**
  * Obsługuje najechanie kursorem na obiekt mapy.
+ * OPTYMALIZACJA: Używa indexu właścicieli zamiast find()
  * @param {Event} e - Zdarzenie najechania
  * @param {Object} feature - Obiekt GeoJSON
  */
@@ -1242,10 +1324,10 @@ function handleFeatureMouseover(e, feature) {
         checkElementVisibility(parcelButton);
     }
 
-    /* Podświetlenie właścicieli */
+    /* OPTYMALIZACJA: Podświetlenie właścicieli używając indexu */
     const props = feature.properties;
     const realOwners = (props.wlasciciele || []).filter(owner => {
-        const ownerData = allOwnersData.find(o => o.id === owner.id);
+        const ownerData = ownersIndexById.get(owner.id);  // O(1) zamiast find()
         return ownerData && (ownerData.dzialki_rzeczywiste || []).some(
             dzialka => dzialka.id === feature.id
         );
@@ -1842,7 +1924,8 @@ function showOwnerSelectionPopup(wlasciciele, latlng) {
     let listaHtml = "<h3>Ta działka ma wielu właścicieli.<br>Wybierz protokół:</h3><ul>";
 
     wlasciciele.forEach(w => {
-        const ownerDetails = allOwnersData.find(o => o.id === w.id);
+        /* OPTYMALIZACJA: Używamy indexu zamiast find() */
+        const ownerDetails = ownersIndexById.get(w.id);
         const lp = ownerDetails ? ownerDetails.numer_protokolu : "N/A";
         listaHtml += `
             <li>
@@ -2176,7 +2259,8 @@ function createOwnerHighlightLegend(ownerKeys, colorMap, legendElement) {
     legendList.innerHTML = "";
 
     ownerKeys.forEach(ownerKey => {
-        const owner = allOwnersData.find(o => o.unikalny_klucz === ownerKey);
+        /* OPTYMALIZACJA: Używamy indexu zamiast find() */
+        const owner = ownersIndexByKey.get(ownerKey);
         if (!owner) return;
         
         const colorData = colorMap[ownerKey];

@@ -413,6 +413,8 @@ html, body {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    /* OPTYMALIZACJA: CSS containment dla kontenerów list */
+    contain: layout style;
 }
 
 .owner-card {
@@ -424,6 +426,9 @@ html, body {
     transition: all 0.3s;
     position: relative;
     overflow: hidden;
+    /* OPTYMALIZACJA: CSS containment dla lepszej wydajności */
+    contain: layout style paint;
+    will-change: transform;
 }
 
 .owner-card:hover {
@@ -568,6 +573,8 @@ html, body {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    /* OPTYMALIZACJA: CSS containment dla kontenerów list */
+    contain: layout style;
 }
 
 .parcel-item {
@@ -582,6 +589,9 @@ html, body {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    /* OPTYMALIZACJA: CSS containment dla lepszej wydajności */
+    contain: layout style paint;
+    will-change: transform;
 }
 
 .parcel-item:hover {
