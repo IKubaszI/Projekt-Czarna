@@ -1486,11 +1486,15 @@ function clearAllHighlights() {
         geojsonLayer.eachLayer(layer => geojsonLayer.resetStyle(layer));
     }
 
+    /* Przywróć wszystkie filtry w legendzie do stanu bazowego */
+    checkAllLegendFilters();
+
     /* Czyszczenie parametrów URL */
     const url = new URL(window.location);
     url.searchParams.delete("parcels");
     url.searchParams.delete("highlightTopOwners");
     url.searchParams.delete("highlightByIds");
+    url.searchParams.delete("clearLegend");
     history.pushState({}, "", url);
 
     document.getElementById('selected-count').textContent = 0;
@@ -2193,6 +2197,20 @@ function uncheckAllLegendFilters(excludeCategories = []) {
         if (checkbox.checked) {
             checkbox.checked = false;
             // Uruchom event change, aby ukryć warstwy
+            checkbox.dispatchEvent(new Event('change'));
+        }
+    });
+}
+
+/**
+ * Zaznacza wszystkie filtry w legendzie - przywraca stan bazowy.
+ */
+function checkAllLegendFilters() {
+    const legendCheckboxes = document.querySelectorAll('.legend-checkbox');
+    legendCheckboxes.forEach(checkbox => {
+        if (!checkbox.checked) {
+            checkbox.checked = true;
+            // Uruchom event change, aby pokazać warstwy
             checkbox.dispatchEvent(new Event('change'));
         }
     });
