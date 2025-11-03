@@ -792,8 +792,9 @@ function setupParcelPanel() {
         showBtn.addEventListener('click', (e) => {
             e.stopPropagation();
 
-            // Odznacz wszystkie filtry w legendzie, aby lepiej zobaczyć działkę
-            uncheckAllLegendFilters();
+            // Odznacz wszystkie filtry w legendzie oprócz kategorii tej działki
+            const kategoria = parcel.properties.kategoria;
+            uncheckAllLegendFilters([kategoria]);
 
             const layer = findLayerById(parcel.id);
             if (layer) {
@@ -1507,12 +1508,6 @@ function handleUrlParameters() {
     const idsToHighlight = new Set();
     let popupInfo = null;
 
-    /* Parametr clearLegend - odznacza wszystkie filtry w legendzie */
-    const clearLegend = params.get("clearLegend");
-    if (clearLegend === "true") {
-        uncheckAllLegendFilters();
-    }
-
     /* Parametr highlightByIds */
     const idsParam = params.get("highlightByIds");
     if (idsParam) {
@@ -1529,12 +1524,12 @@ function handleUrlParameters() {
         const uniqueOwnerKeys = [...new Set(
             ownersParam.split(",").map(key => key.trim()).filter(Boolean)
         )];
-        
+
         if (uniqueOwnerKeys.length > 0) {
             highlightAndColorOwners(uniqueOwnerKeys, ownershipType);
         }
     }
-    
+
     /* Parametr findHouseNumber */
     const houseNumberParam = params.get("findHouseNumber");
     if (houseNumberParam) {
@@ -1560,13 +1555,25 @@ function handleUrlParameters() {
     if (idsToHighlight.size > 0) {
         highlightFeaturesByIds(Array.from(idsToHighlight), 'fuchsia');
     }
-    
+
     if (popupInfo) {
         map.setView(popupInfo.latlng, 11);
         L.popup()
             .setLatLng(popupInfo.latlng)
             .setContent(popupInfo.content)
             .openOn(map);
+    }
+
+    /* Parametr clearLegend - odznacza wszystkie filtry OPRÓCZ podświetlonych kategorii */
+    const clearLegend = params.get("clearLegend");
+    if (clearLegend === "true") {
+        // Znajdź kategorie podświetlonych obiektów
+        const categoriesToKeep = idsToHighlight.size > 0
+            ? getCategoriesByIds(Array.from(idsToHighlight))
+            : [];
+
+        // Odznacz wszystkie filtry oprócz kategorii podświetlonych obiektów
+        uncheckAllLegendFilters(categoriesToKeep);
     }
 }
 
@@ -2034,8 +2041,9 @@ function createSpecialObjectItem(item, icon) {
     showBtn.addEventListener('click', (e) => {
         e.stopPropagation();
 
-        // Odznacz wszystkie filtry w legendzie, aby lepiej zobaczyć obiekt
-        uncheckAllLegendFilters();
+        // Odznacz wszystkie filtry w legendzie oprócz kategorii tego obiektu
+        const kategoria = item.properties.kategoria;
+        uncheckAllLegendFilters([kategoria]);
 
         const layer = findLayerById(item.id);
         if (layer) {
@@ -2171,16 +2179,38 @@ function createLegendItem(kategoria, label, style) {
 
 /**
  * Odznacza wszystkie filtry w legendzie, aby lepiej zobaczyć konkretne działki.
+ * @param {Array<string>} excludeCategories - Kategorie do pominięcia (nie będą odznaczone)
  */
-function uncheckAllLegendFilters() {
+function uncheckAllLegendFilters(excludeCategories = []) {
     const legendCheckboxes = document.querySelectorAll('.legend-checkbox');
     legendCheckboxes.forEach(checkbox => {
+        // Sprawdź czy to jest kategoria do zachowania
+        const kategoria = checkbox.id.replace('legend-', '');
+        if (excludeCategories.includes(kategoria)) {
+            return; // Nie odznaczaj tej kategorii
+        }
+
         if (checkbox.checked) {
             checkbox.checked = false;
             // Uruchom event change, aby ukryć warstwy
             checkbox.dispatchEvent(new Event('change'));
         }
     });
+}
+
+/**
+ * Znajduje kategorie obiektów na podstawie ich ID.
+ * @param {Array<number>} featureIds - Tablica ID obiektów
+ * @returns {Array<string>} Unikalne kategorie znalezionych obiektów
+ */
+function getCategoriesByIds(featureIds) {
+    const categories = new Set();
+    allParcelsData.forEach(feature => {
+        if (featureIds.includes(feature.id)) {
+            categories.add(feature.properties.kategoria);
+        }
+    });
+    return Array.from(categories);
 }
 
 /**
