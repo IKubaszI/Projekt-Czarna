@@ -529,21 +529,39 @@ function setupOwnerPanel() {
      * @param {boolean} highlight - Czy podświetlić
      */
     const highlightOwnerParcels = (owner, highlight) => {
-        if (!geojsonLayer) return;
-        
-        geojsonLayer.eachLayer(layer => {
+        /* Funkcja pomocnicza do podświetlenia warstwy */
+        const highlightLayer = (layer) => {
+            if (!layer.feature) return;
+
             const ownersOnParcel = layer.feature.properties.wlasciciele;
             const isOwnerMatch = ownersOnParcel?.some(o => o.id === owner.id);
-            
-            if (isOwnerMatch && layer.setStyle) {
-                if (highlight) {
-                    layer.setStyle({ weight: 5, color: "lime" });
-                    layer.bringToFront();
-                } else {
-                    geojsonLayer.resetStyle(layer);
+
+            if (isOwnerMatch) {
+                if (layer.setStyle) {
+                    if (highlight) {
+                        layer.setStyle({ weight: 5, color: "lime" });
+                        layer.bringToFront();
+                    } else {
+                        geojsonLayer.resetStyle(layer);
+                    }
+                } else if (layer instanceof L.Marker) {
+                    /* Dla markerów w clusterze możemy zmienić opacity */
+                    if (highlight) {
+                        layer.setOpacity(1);
+                    } else {
+                        layer.setOpacity(1);
+                    }
                 }
             }
-        });
+        };
+
+        if (geojsonLayer) {
+            geojsonLayer.eachLayer(highlightLayer);
+        }
+
+        if (markerClusterGroup) {
+            markerClusterGroup.eachLayer(highlightLayer);
+        }
     };
 
     /**
@@ -1339,24 +1357,34 @@ function highlightFeaturesByIds(featureIds, color, ownerName = null, ownershipTy
         fillOpacity: 0.5,
     };
 
-    /* Tworzenie warstw podświetleń */
-    geojsonLayer.eachLayer(layer => {
-        if (featureIds.includes(layer.feature.id)) {
-            let clonedLayer;
-            
-            if (layer instanceof L.Polygon) {
-                clonedLayer = L.polygon(layer.getLatLngs(), highlightStyle);
-            } else if (layer instanceof L.Polyline) {
-                clonedLayer = L.polyline(layer.getLatLngs(), { ...highlightStyle, fill: false });
-            } else if (layer instanceof L.Marker) {
-                clonedLayer = L.circleMarker(layer.getLatLng(), { radius: 10, ...highlightStyle });
-            }
-            
-            if (clonedLayer) {
-                highlightedLayer.addLayer(clonedLayer);
-            }
+    /* Funkcja pomocnicza do tworzenia podświetlenia */
+    const createHighlight = (layer) => {
+        if (!featureIds.includes(layer.feature.id)) return;
+
+        let clonedLayer;
+
+        if (layer instanceof L.Polygon) {
+            clonedLayer = L.polygon(layer.getLatLngs(), highlightStyle);
+        } else if (layer instanceof L.Polyline) {
+            clonedLayer = L.polyline(layer.getLatLngs(), { ...highlightStyle, fill: false });
+        } else if (layer instanceof L.Marker) {
+            clonedLayer = L.circleMarker(layer.getLatLng(), { radius: 15, ...highlightStyle });
         }
-    });
+
+        if (clonedLayer) {
+            highlightedLayer.addLayer(clonedLayer);
+        }
+    };
+
+    /* Tworzenie warstw podświetleń - z geojsonLayer */
+    if (geojsonLayer) {
+        geojsonLayer.eachLayer(createHighlight);
+    }
+
+    /* Tworzenie warstw podświetleń - z markerClusterGroup */
+    if (markerClusterGroup) {
+        markerClusterGroup.eachLayer(createHighlight);
+    }
 
     if (highlightedLayer.getLayers().length > 0) {
         highlightedLayer.addTo(map);
@@ -1396,14 +1424,24 @@ function highlightAndColorOwners(uniqueOwnerKeys, ownershipType = 'wszystkie') {
         map.removeLayer(ownerHighlightLayer);
     }
 
-    if (uniqueOwnerKeys.length === 0 || !geojsonLayer) return;
+    if (uniqueOwnerKeys.length === 0) return;
 
     const ownerColorMap = assignColorsToOwners(uniqueOwnerKeys, ownershipType);
     ownerHighlightLayer = new L.FeatureGroup();
 
-    geojsonLayer.eachLayer(layer => {
-        processLayerForOwnerHighlight(layer, ownerColorMap, ownershipType);
-    });
+    /* Przetwarzanie warstw z geojsonLayer */
+    if (geojsonLayer) {
+        geojsonLayer.eachLayer(layer => {
+            processLayerForOwnerHighlight(layer, ownerColorMap, ownershipType);
+        });
+    }
+
+    /* Przetwarzanie warstw z markerClusterGroup */
+    if (markerClusterGroup) {
+        markerClusterGroup.eachLayer(layer => {
+            processLayerForOwnerHighlight(layer, ownerColorMap, ownershipType);
+        });
+    }
 
     if (ownerHighlightLayer.getLayers().length > 0) {
         ownerHighlightLayer.addTo(map);
@@ -1615,44 +1653,53 @@ function whenGeoJSONIsReady(maxTries = 30, delayMs = 150) {
  * @returns {boolean} Czy znaleziono obiekt
  */
 function focusFeatureById(objectId, popupHtml) {
-    let found = false;
-    
-    map.eachLayer(layer => {
-        if (!layer || !layer.feature) return;
-        
-        if (String(layer.feature.id) === String(objectId)) {
-            found = true;
-            
-            try {
-                /* Ustawienie widoku */
-                if (layer.getBounds) {
-                    map.fitBounds(layer.getBounds(), { maxZoom: 19, padding: [20, 20] });
-                } else if (layer.getLatLng) {
-                    map.setView(layer.getLatLng(), 19);
+    const layer = findLayerById(parseInt(objectId));
+
+    if (!layer) return false;
+
+    try {
+        /* Jeśli marker jest w clusterze, najpierw go pokaż */
+        if (markerClusterGroup && markerClusterGroup.hasLayer(layer)) {
+            markerClusterGroup.zoomToShowLayer(layer, () => {
+                /* Po rozpakowaniu clustera, przybliż i otwórz popup */
+                if (layer.getLatLng) {
+                    map.setView(layer.getLatLng(), 18);
                 }
-                
-                /* Stylizacja */
-                if (layer.setStyle && layer.feature.geometry?.type !== 'Point') {
-                    layer.setStyle({ 
-                        color: 'fuchsia', 
-                        weight: 4, 
-                        fillColor: 'fuchsia', 
-                        fillOpacity: 0.35 
-                    });
-                    if (layer.bringToFront) layer.bringToFront();
-                }
-                
-                /* Popup */
+
                 if (popupHtml) {
                     layer.bindPopup(popupHtml, { maxWidth: 320 }).openPopup();
                 }
-            } catch (e) {
-                console.warn('Nie udało się podświetlić obiektu:', e);
+            });
+        } else {
+            /* Dla poligonów i linii */
+            if (layer.getBounds) {
+                map.fitBounds(layer.getBounds(), { maxZoom: 19, padding: [20, 20] });
+            } else if (layer.getLatLng) {
+                map.setView(layer.getLatLng(), 18);
+            }
+
+            /* Stylizacja dla poligonów */
+            if (layer.setStyle && layer.feature.geometry?.type !== 'Point') {
+                layer.setStyle({
+                    color: 'fuchsia',
+                    weight: 4,
+                    fillColor: 'fuchsia',
+                    fillOpacity: 0.35
+                });
+                if (layer.bringToFront) layer.bringToFront();
+            }
+
+            /* Popup */
+            if (popupHtml) {
+                layer.bindPopup(popupHtml, { maxWidth: 320 }).openPopup();
             }
         }
-    });
-    
-    return found;
+
+        return true;
+    } catch (e) {
+        console.warn('Nie udało się podświetlić obiektu:', e);
+        return false;
+    }
 }
 
 /**
@@ -1664,10 +1711,11 @@ function focusFeatureById(objectId, popupHtml) {
  */
 function focusHouseByNumberAndOwner(houseNumber, ownerId, ownerName) {
     let match = null;
-    
-    map.eachLayer(layer => {
-        if (!layer || !layer.feature) return;
-        
+
+    /* Funkcja pomocnicza do sprawdzenia warstwy */
+    const checkLayer = (layer) => {
+        if (!layer || !layer.feature) return false;
+
         const f = layer.feature;
         const p = f.properties || {};
         const isHouseCat = (p.kategoria === 'budynek' || p.kategoria === 'dom');
@@ -1677,9 +1725,21 @@ function focusHouseByNumberAndOwner(houseNumber, ownerId, ownerName) {
 
         if (isHouseCat && sameNumber && (hasOwner || owners.length === 0)) {
             match = f.id;
+            return true;
         }
-    });
-    
+        return false;
+    };
+
+    /* Szukaj w geojsonLayer */
+    if (geojsonLayer) {
+        geojsonLayer.eachLayer(checkLayer);
+    }
+
+    /* Szukaj w markerClusterGroup */
+    if (!match && markerClusterGroup) {
+        markerClusterGroup.eachLayer(checkLayer);
+    }
+
     if (match != null) {
         const html = `
             <div>
@@ -1688,7 +1748,7 @@ function focusHouseByNumberAndOwner(houseNumber, ownerId, ownerName) {
             </div>`;
         return focusFeatureById(match, html);
     }
-    
+
     return false;
 }
 
@@ -1739,15 +1799,25 @@ function getCenterOfFeature(feature) {
  */
 function findLayerById(featureId) {
     let foundLayer = null;
-    
+
+    /* Szukaj w warstwie GeoJSON (poligony i linie) */
     if (geojsonLayer) {
         geojsonLayer.eachLayer(layer => {
-            if (layer.feature.id === featureId) {
+            if (layer.feature && layer.feature.id === featureId) {
                 foundLayer = layer;
             }
         });
     }
-    
+
+    /* Jeśli nie znaleziono, szukaj w clusterze (punkty) */
+    if (!foundLayer && markerClusterGroup) {
+        markerClusterGroup.eachLayer(layer => {
+            if (layer.feature && layer.feature.id === featureId) {
+                foundLayer = layer;
+            }
+        });
+    }
+
     return foundLayer;
 }
 
@@ -2059,13 +2129,24 @@ function createLegendItem(kategoria, label, style) {
     /* Obsługa przełączania warstw */
     checkbox.addEventListener("change", () => {
         const layers = layersByCategory[kategoria];
-        
+
         if (layers) {
+            /* Kategorie punktowe są w markerClusterGroup */
+            const isPointCategory = ['budynek', 'kapliczka', 'obiekt_specjalny'].includes(kategoria);
+
             if (checkbox.checked) {
-                layers.forEach(layer => map.addLayer(layer));
+                if (isPointCategory && markerClusterGroup) {
+                    layers.forEach(layer => markerClusterGroup.addLayer(layer));
+                } else {
+                    layers.forEach(layer => map.addLayer(layer));
+                }
                 li.classList.remove("inactive");
             } else {
-                layers.forEach(layer => map.removeLayer(layer));
+                if (isPointCategory && markerClusterGroup) {
+                    layers.forEach(layer => markerClusterGroup.removeLayer(layer));
+                } else {
+                    layers.forEach(layer => map.removeLayer(layer));
+                }
                 li.classList.add("inactive");
             }
         }
