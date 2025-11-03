@@ -18,6 +18,7 @@ let allParcelsData = [];
 let geojsonLayer = null;
 let historicalMapOverlay = null;
 let layersByCategory = {};
+let layersControl = null;  // Kontrolka warstw Leaflet
 
 /* Stan interfejsu */
 let isInCompareMode = false;
@@ -188,7 +189,7 @@ function initializeMap() {
         "Podkład mapy historycznej z XIX w.": historicalMapOverlay
     };
 
-    L.control.layers(baseMaps, overlayMaps, {
+    layersControl = L.control.layers(baseMaps, overlayMaps, {
         position: 'topright',
         collapsed: true
     }).addTo(map);
@@ -406,8 +407,14 @@ function renderMapObjects(parcels) {
             }
             layer.bindPopup(popupContent);
 
-            /* Numerki działek - usunięte z powodu problemów z renderowaniem przy Canvas
-               Numerki są widoczne po kliknięciu w popup */
+            /* Dodawanie etykiet do obiektów niepunktowych */
+            if (props.numer_obiektu && feature.geometry.type !== 'Point') {
+                layer.bindTooltip(props.numer_obiektu.toString(), {
+                    permanent: true,
+                    direction: 'center',
+                    className: 'parcel-label'
+                });
+            }
 
             /* Zdarzenia interakcji */
             layer.on({
@@ -1371,13 +1378,18 @@ if (clearHighlightBtn) {
 /**
  * Podświetla obiekty na mapie według ID.
  * OPTYMALIZACJA: Używa cache zamiast przeszukiwania wszystkich warstw
+ * Dodaje warstwę do kontrolki warstw Leaflet
  * @param {Array} featureIds - Tablica ID obiektów
  * @param {string} color - Kolor podświetlenia
- * @param {string} label - Opcjonalna etykieta dla legendy
+ * @param {string} label - Opcjonalna etykieta dla kontrolki warstw
  */
 function highlightFeaturesByIds(featureIds, color, label = null) {
+    /* Usuń poprzednie podświetlenie jeśli istnieje */
     if (highlightedLayer) {
         map.removeLayer(highlightedLayer);
+        if (layersControl && highlightedLayer._layerName) {
+            layersControl.removeLayer(highlightedLayer);
+        }
     }
 
     highlightedLayer = new L.FeatureGroup();
@@ -1412,6 +1424,12 @@ function highlightFeaturesByIds(featureIds, color, label = null) {
     if (highlightedLayer.getLayers().length > 0) {
         highlightedLayer.addTo(map);
 
+        /* Dodaj do kontrolki warstw jeśli podano etykietę */
+        if (label && layersControl) {
+            highlightedLayer._layerName = label;
+            layersControl.addOverlay(highlightedLayer, `📍 ${label}`);
+        }
+
         /* Sprawdź czy jest parametr zoom w URL */
         const params = new URLSearchParams(window.location.search);
         const customZoom = params.get('zoom');
@@ -1427,47 +1445,25 @@ function highlightFeaturesByIds(featureIds, color, label = null) {
         }
 
         document.getElementById("highlight-controls").classList.remove("hidden");
-
-        /* Pokaż prostą legendę jeśli podano etykietę */
-        if (label) {
-            showSimpleHighlightLegend(color, label);
-        }
     }
 
     document.getElementById('selected-count').textContent = highlightedLayer.getLayers().length;
 }
 
 /**
- * Pokazuje prostą legendę dla pojedynczego podświetlenia.
- * @param {string} color - Kolor podświetlenia
- * @param {string} label - Etykieta (np. "Działki rzeczywiste")
- */
-function showSimpleHighlightLegend(color, label) {
-    const legendElement = document.getElementById("owner-highlight-legend");
-    const legendList = legendElement.querySelector("ul");
-
-    legendList.innerHTML = `
-        <li>
-            <span class="legend-color-box" style="background-color: ${color};"></span>
-            <span>${label}</span>
-        </li>
-    `;
-
-    legendElement.classList.remove("hidden");
-}
-
-/**
  * Podświetla działki właścicieli z kolorowaniem.
+ * Dodaje do kontrolki warstw Leaflet
  * @param {Array} uniqueOwnerKeys - Klucze właścicieli
  * @param {string} ownershipType - Typ własności
  */
 function highlightAndColorOwners(uniqueOwnerKeys, ownershipType = 'wszystkie') {
+    /* Usuń poprzednie podświetlenie właścicieli jeśli istnieje */
     if (ownerHighlightLayer) {
         map.removeLayer(ownerHighlightLayer);
+        if (layersControl && ownerHighlightLayer._layerName) {
+            layersControl.removeLayer(ownerHighlightLayer);
+        }
     }
-    
-    const ownerHighlightLegend = document.getElementById("owner-highlight-legend");
-    ownerHighlightLegend.classList.add("hidden");
 
     if (uniqueOwnerKeys.length === 0 || !geojsonLayer) return;
 
@@ -1477,11 +1473,25 @@ function highlightAndColorOwners(uniqueOwnerKeys, ownershipType = 'wszystkie') {
     geojsonLayer.eachLayer(layer => {
         processLayerForOwnerHighlight(layer, ownerColorMap, ownershipType);
     });
-    
+
     if (ownerHighlightLayer.getLayers().length > 0) {
         ownerHighlightLayer.addTo(map);
         map.fitBounds(ownerHighlightLayer.getBounds());
-        createOwnerHighlightLegend(uniqueOwnerKeys, ownerColorMap, ownerHighlightLegend);
+
+        /* Dodaj do kontrolki warstw */
+        if (layersControl) {
+            let layerLabel = '';
+            if (ownershipType === 'rzeczywista') {
+                layerLabel = '📍 Wyróżnieni właściciele (działki rzeczywiste)';
+            } else if (ownershipType === 'protokol') {
+                layerLabel = '📍 Wyróżnieni właściciele (wg protokołu)';
+            } else {
+                layerLabel = '📍 Wyróżnieni właściciele';
+            }
+            ownerHighlightLayer._layerName = layerLabel;
+            layersControl.addOverlay(ownerHighlightLayer, layerLabel);
+        }
+
         document.getElementById("highlight-controls").classList.remove("hidden");
     }
 }
@@ -1490,18 +1500,25 @@ function highlightAndColorOwners(uniqueOwnerKeys, ownershipType = 'wszystkie') {
  * Czyści wszystkie podświetlenia na mapie.
  */
 function clearAllHighlights() {
+    /* Usuń highlightedLayer */
     if (highlightedLayer) {
         map.removeLayer(highlightedLayer);
+        if (layersControl && highlightedLayer._layerName) {
+            layersControl.removeLayer(highlightedLayer);
+        }
         highlightedLayer = null;
     }
-    
+
+    /* Usuń ownerHighlightLayer */
     if (ownerHighlightLayer) {
         map.removeLayer(ownerHighlightLayer);
+        if (layersControl && ownerHighlightLayer._layerName) {
+            layersControl.removeLayer(ownerHighlightLayer);
+        }
         ownerHighlightLayer = null;
     }
 
     document.getElementById("highlight-controls")?.classList.add("hidden");
-    document.getElementById("owner-highlight-legend")?.classList.add("hidden");
 
     if (geojsonLayer) {
         geojsonLayer.eachLayer(layer => geojsonLayer.resetStyle(layer));
@@ -2227,44 +2244,6 @@ function processLayerForOwnerHighlight(layer, ownerColorMap, ownershipType) {
     if (clonedLayer) {
         ownerHighlightLayer.addLayer(clonedLayer);
     }
-}
-
-/**
- * Tworzy legendę podświetlonych właścicieli.
- * @param {Array} ownerKeys - Klucze właścicieli
- * @param {Object} colorMap - Mapa kolorów
- * @param {HTMLElement} legendElement - Element legendy
- */
-function createOwnerHighlightLegend(ownerKeys, colorMap, legendElement) {
-    const legendList = legendElement.querySelector("ul");
-    legendList.innerHTML = "";
-
-    ownerKeys.forEach(ownerKey => {
-        /* OPTYMALIZACJA: Używamy indexu zamiast find() */
-        const owner = ownersIndexByKey.get(ownerKey);
-        if (!owner) return;
-        
-        const colorData = colorMap[ownerKey];
-        if (typeof colorData === "object") {
-            legendList.innerHTML += `
-                <li>
-                    <span class="legend-color-box" style="background-color: ${colorData.rzeczywista};"></span>
-                    <span>${owner.nazwa_wlasciciela} (Rzeczywiste)</span>
-                </li>
-                <li>
-                    <span class="legend-color-box" style="background-color: ${colorData.protokol};"></span>
-                    <span>${owner.nazwa_wlasciciela} (Wg Protokołu)</span>
-                </li>`;
-        } else {
-            legendList.innerHTML += `
-                <li>
-                    <span class="legend-color-box" style="background-color: ${colorData};"></span>
-                    <span>${owner.nazwa_wlasciciela}</span>
-                </li>`;
-        }
-    });
-
-    legendElement.classList.remove("hidden");
 }
 
 /* ==========================================================================
