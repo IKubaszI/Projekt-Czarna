@@ -196,6 +196,51 @@ ICONS_SCAN_FOLDERS = [
     os.path.join(ASSETS_FOLDER, "icons"),
 ]
 
+# =============================================================================
+# FUNKCJE KONFIGURACJI - MUSZĄ BYĆ PRZED FUNKCJAMI PROJEKTÓW
+# =============================================================================
+
+def read_env_config(key_prefix=None):
+    """Odczytuje konfigurację z pliku .env."""
+    env_path = os.path.join(BACKEND_DIR, ".env")
+    config = {}
+
+    if not os.path.exists(env_path):
+        return config
+
+    try:
+        with open(env_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    key, value = key.strip(), value.strip()
+                    if not key_prefix or key.startswith(key_prefix):
+                        config[key] = value
+    except Exception as e:
+        print(f"Błąd odczytu .env: {e}")
+
+    return config
+
+def get_db_config_from_env():
+    """Odczytuje konfigurację bazy danych z pliku .env."""
+    env_config = read_env_config('DB_')
+    return {
+        "host": env_config.get('DB_HOST', 'localhost'),
+        "dbname": env_config.get('DB_NAME', 'mapa_czarna_db'),
+        "user": env_config.get('DB_USER', 'postgres'),
+        "password": env_config.get('DB_PASSWORD', '1234'),
+        "port": env_config.get('DB_PORT', '5432')
+    }
+
+def get_flask_config():
+    """Odczytuje konfigurację Flask z pliku .env."""
+    env_config = read_env_config('FLASK_')
+    return {
+        'host': env_config.get('FLASK_HOST', '127.0.0.1'),
+        'port': env_config.get('FLASK_PORT', '5000')
+    }
+
 def get_data_files_for_project(project_name=None):
     """
     Zwraca ścieżki do plików danych dla danego projektu.
@@ -416,47 +461,6 @@ def check_backup_folder_files():
             except Exception as e:
                 print(f"⚠️ Nie można utworzyć pliku {filename}: {e}")
 
-def read_env_config(key_prefix=None):
-    """Odczytuje konfigurację z pliku .env."""
-    env_path = os.path.join(BACKEND_DIR, ".env")
-    config = {}
-    
-    if not os.path.exists(env_path):
-        return config
-        
-    try:
-        with open(env_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#') and '=' in line:
-                    key, value = line.split('=', 1)
-                    key, value = key.strip(), value.strip()
-                    if not key_prefix or key.startswith(key_prefix):
-                        config[key] = value
-    except Exception as e:
-        print(f"Błąd odczytu .env: {e}")
-    
-    return config
-
-def get_db_config_from_env():
-    """Odczytuje konfigurację bazy danych z pliku .env."""
-    env_config = read_env_config('DB_')
-    return {
-        "host": env_config.get('DB_HOST', 'localhost'),
-        "dbname": env_config.get('DB_NAME', 'mapa_czarna_db'),
-        "user": env_config.get('DB_USER', 'postgres'),
-        "password": env_config.get('DB_PASSWORD', '1234'),
-        "port": env_config.get('DB_PORT', '5432')
-    }
-
-def get_flask_config():
-    """Odczytuje konfigurację Flask z pliku .env."""
-    env_config = read_env_config('FLASK_')
-    return {
-        'host': env_config.get('FLASK_HOST', '127.0.0.1'),
-        'port': env_config.get('FLASK_PORT', '5000')
-    }
-
 # =============================================================================
 # GŁÓWNA KLASA APLIKACJI
 # =============================================================================
@@ -642,8 +646,12 @@ class AppLauncher(tk.Tk):
             style="Primary.TButton"
         ).pack(side=tk.LEFT, padx=(0, 5))
 
-        # Załaduj projekty
-        self.refresh_projects()
+        ttk.Button(
+            project_frame,
+            text="⚙️ Zarządzaj Miejscowościami",
+            command=self.open_project_manager,
+            style="Info.TButton"
+        ).pack(side=tk.LEFT, padx=(0, 5))
 
         # Sekcja operacji głównych
         operations_frame = ttk.LabelFrame(main_frame, text="⚙️ Operacje Główne", padding="10")
@@ -745,6 +753,9 @@ class AppLauncher(tk.Tk):
         self.log("=" * 60 + "\n")
         self.log("ℹ️ Witaj w centrum zarządzania projektem!\n")
         self.log("ℹ️ Użyj przycisków powyżej, aby uruchomić komponenty.\n\n")
+
+        # Załaduj projekty TUTAJ (po stworzeniu konsoli)
+        self.refresh_projects()
 
     def log(self, message, console=None):
         """Wypisuje wiadomość do konsoli."""
@@ -1240,6 +1251,10 @@ if __name__ == '__main__':
             print(f"❌ Błąd odświeżania projektów: {e}")
             self.project_combo['values'] = ["Czarna (domyślna)"]
             self.project_var.set("Czarna (domyślna)")
+
+    def open_project_manager(self):
+        """Otwiera okno zarządzania projektami."""
+        ProjectManagerDialog(self)
 
     def on_project_selected(self, event=None):
         """Obsługuje zmianę projektu w dropdownie."""
@@ -2179,6 +2194,311 @@ class InstructionsWindow(tk.Toplevel):
         y = parent.winfo_rooty() + (parent.winfo_height() - self.winfo_height()) // 2
         self.geometry(f"+{x}+{y}")
         self.focus_set()
+
+# =============================================================================
+# OKNO ZARZĄDZANIA PROJEKTAMI (MIEJSCOWOŚCIAMI)
+# =============================================================================
+
+class ProjectManagerDialog(tk.Toplevel):
+    """Okno dialogowe do zarządzania projektami (miejscowościami)."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.transient(parent)
+        self.title("⚙️ Zarządzanie Miejscowościami")
+        self.geometry("900x600")
+        self.grab_set()
+
+        self.create_widgets()
+        self.load_projects()
+
+        # Wyśrodkowanie
+        parent.update_idletasks()
+        self.update_idletasks()
+        x = parent.winfo_rootx() + (parent.winfo_width() - self.winfo_width()) // 2
+        y = parent.winfo_rooty() + (parent.winfo_height() - self.winfo_height()) // 2
+        self.geometry(f"+{x}+{y}")
+
+    def create_widgets(self):
+        """Tworzy interfejs okna."""
+        main_frame = ttk.Frame(self, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Nagłówek
+        header = ttk.Label(main_frame, text="📍 Lista Miejscowości", font=("Segoe UI", 12, "bold"))
+        header.pack(pady=(0, 10))
+
+        # Frame dla listy i przycisków
+        list_frame = ttk.Frame(main_frame)
+        list_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Lista projektów
+        columns = ("ID", "Nazwa", "Pełna Nazwa", "Powiat", "Region", "Aktywna")
+        self.tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=15)
+
+        self.tree.heading("ID", text="ID")
+        self.tree.heading("Nazwa", text="Nazwa")
+        self.tree.heading("Pełna Nazwa", text="Pełna Nazwa")
+        self.tree.heading("Powiat", text="Powiat")
+        self.tree.heading("Region", text="Region")
+        self.tree.heading("Aktywna", text="Aktywna")
+
+        self.tree.column("ID", width=50)
+        self.tree.column("Nazwa", width=120)
+        self.tree.column("Pełna Nazwa", width=200)
+        self.tree.column("Powiat", text="Powiat", width=150)
+        self.tree.column("Region", width=150)
+        self.tree.column("Aktywna", width=80)
+
+        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scrollbar.set)
+
+        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Przyciski akcji
+        buttons_frame = ttk.Frame(main_frame)
+        buttons_frame.pack(fill=tk.X, pady=(10, 0))
+
+        ttk.Button(buttons_frame, text="➕ Dodaj Nową Miejscowość", command=self.add_project,
+                  style="Success.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(buttons_frame, text="✏️ Edytuj", command=self.edit_project,
+                  style="Primary.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(buttons_frame, text="🗑️ Usuń", command=self.delete_project,
+                  style="Danger.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(buttons_frame, text="✅ Ustaw Jako Aktywną", command=self.set_active,
+                  style="Info.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(buttons_frame, text="🔄 Odśwież", command=self.load_projects,
+                  style="Primary.TButton").pack(side=tk.LEFT, padx=5)
+
+    def load_projects(self):
+        """Ładuje projekty z bazy danych."""
+        # Wyczyść listę
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        # Pobierz projekty
+        projects = get_all_projects_from_db()
+        if not projects:
+            return
+
+        # Dodaj do listy
+        for p in projects:
+            self.tree.insert("", "end", iid=p['id'], values=(
+                p['id'],
+                p['nazwa'],
+                p.get('pelna_nazwa', ''),
+                p.get('rok_zrodlowy', ''),
+                p.get('region', ''),
+                "TAK" if p.get('is_active') else "NIE"
+            ))
+
+    def add_project(self):
+        """Otwiera okno dodawania nowego projektu."""
+        ProjectFormDialog(self, mode="add", on_save=self.on_project_saved)
+
+    def edit_project(self):
+        """Otwiera okno edycji wybranego projektu."""
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showwarning("Brak zaznaczenia", "Wybierz miejscowość do edycji.")
+            return
+
+        project_id = int(selected[0])
+        # Pobierz szczegóły projektu
+        projects = get_all_projects_from_db()
+        project = next((p for p in projects if p['id'] == project_id), None)
+
+        if project:
+            ProjectFormDialog(self, mode="edit", project=project, on_save=self.on_project_saved)
+
+    def delete_project(self):
+        """Usuwa wybrany projekt."""
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showwarning("Brak zaznaczenia", "Wybierz miejscowość do usunięcia.")
+            return
+
+        project_id = int(selected[0])
+
+        # Sprawdź czy to nie aktywny projekt
+        active = get_active_project_from_db()
+        if active and active['id'] == project_id:
+            messagebox.showerror("Błąd", "Nie można usunąć aktywnego projektu!")
+            return
+
+        if not messagebox.askyesno("Potwierdzenie", "Czy na pewno usunąć tę miejscowość?"):
+            return
+
+        try:
+            db_config = get_db_config_from_env()
+            conn = psycopg2.connect(**db_config)
+            conn.set_client_encoding('UTF8')
+
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM projects WHERE id = %s", (project_id,))
+                conn.commit()
+
+            conn.close()
+            messagebox.showinfo("Sukces", "Miejscowość została usunięta.")
+            self.load_projects()
+            self.parent.refresh_projects()
+
+        except Exception as e:
+            messagebox.showerror("Błąd", f"Nie można usunąć miejscowości:\n{e}")
+
+    def set_active(self):
+        """Ustawia wybrany projekt jako aktywny."""
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showwarning("Brak zaznaczenia", "Wybierz miejscowość.")
+            return
+
+        project_id = int(selected[0])
+        result = switch_project_in_db(project_id)
+
+        if result:
+            messagebox.showinfo("Sukces", f"Miejscowość '{result['nazwa']}' jest teraz aktywna.\n\nZrestartuj serwer backend aby zastosować zmiany.")
+            self.load_projects()
+            self.parent.refresh_projects()
+        else:
+            messagebox.showerror("Błąd", "Nie można zmienić aktywnej miejscowości.")
+
+    def on_project_saved(self):
+        """Callback po zapisaniu projektu."""
+        self.load_projects()
+        self.parent.refresh_projects()
+
+
+class ProjectFormDialog(tk.Toplevel):
+    """Okno formularza dodawania/edycji projektu."""
+
+    def __init__(self, parent, mode="add", project=None, on_save=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.mode = mode
+        self.project = project or {}
+        self.on_save_callback = on_save
+
+        self.transient(parent)
+        self.title("➕ Dodaj Miejscowość" if mode == "add" else "✏️ Edytuj Miejscowość")
+        self.geometry("500x600")
+        self.grab_set()
+
+        self.create_widgets()
+        if mode == "edit" and project:
+            self.fill_form()
+
+        # Wyśrodkowanie
+        parent.update_idletasks()
+        self.update_idletasks()
+        x = parent.winfo_rootx() + (parent.winfo_width() - self.winfo_width()) // 2
+        y = parent.winfo_rooty() + (parent.winfo_height() - self.winfo_height()) // 2
+        self.geometry(f"+{x}+{y}")
+
+    def create_widgets(self):
+        """Tworzy formularz."""
+        main_frame = ttk.Frame(self, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Pola formularza
+        fields = [
+            ("short_code", "Krótki Kod (np. 'czarna'):", "short_code"),
+            ("nazwa", "Nazwa (np. 'Czarna'):", "nazwa"),
+            ("pelna_nazwa", "Pełna Nazwa:", "pelna_nazwa"),
+            ("kontekst_czasowy", "Kontekst Czasowy (np. 'XIX wiek'):", "kontekst_czasowy"),
+            ("rok_zrodlowy", "Rok Źródłowy:", "rok_zrodlowy"),
+            ("okres_danych", "Okres Danych (np. '1850-1900'):", "okres_danych"),
+            ("region", "Powiat (np. 'Powiat Pilźnieński'):", "region"),
+            ("wojewodztwo", "Województwo:", "wojewodztwo"),
+            ("db_name", "Nazwa Bazy Danych:", "db_name"),
+        ]
+
+        self.entries = {}
+        for i, (key, label, field_name) in enumerate(fields):
+            ttk.Label(main_frame, text=label).grid(row=i, column=0, sticky="w", pady=5)
+            entry = ttk.Entry(main_frame, width=40)
+            entry.grid(row=i, column=1, sticky="ew", pady=5)
+            self.entries[key] = entry
+
+        main_frame.columnconfigure(1, weight=1)
+
+        # Przyciski
+        buttons_frame = ttk.Frame(main_frame)
+        buttons_frame.grid(row=len(fields), column=0, columnspan=2, pady=(20, 0))
+
+        ttk.Button(buttons_frame, text="💾 Zapisz", command=self.save,
+                  style="Success.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(buttons_frame, text="❌ Anuluj", command=self.destroy,
+                  style="Danger.TButton").pack(side=tk.LEFT, padx=5)
+
+    def fill_form(self):
+        """Wypełnia formularz danymi projektu (tryb edycji)."""
+        for key, entry in self.entries.items():
+            value = self.project.get(key, '')
+            entry.insert(0, str(value) if value else '')
+
+    def save(self):
+        """Zapisuje projekt."""
+        data = {}
+        for key, entry in self.entries.items():
+            value = entry.get().strip()
+            if key in ['rok_zrodlowy']:
+                data[key] = int(value) if value and value.isdigit() else None
+            else:
+                data[key] = value if value else None
+
+        # Walidacja
+        if not data.get('short_code') or not data.get('nazwa'):
+            messagebox.showerror("Błąd", "Wypełnij przynajmniej: Krótki Kod i Nazwa.")
+            return
+
+        try:
+            db_config = get_db_config_from_env()
+            conn = psycopg2.connect(**db_config)
+            conn.set_client_encoding('UTF8')
+
+            with conn.cursor() as cur:
+                if self.mode == "add":
+                    # Dodawanie
+                    cur.execute("""
+                        INSERT INTO projects (
+                            short_code, nazwa, pelna_nazwa, kontekst_czasowy,
+                            rok_zrodlowy, okres_danych, region, wojewodztwo, db_name
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        data['short_code'], data['nazwa'], data['pelna_nazwa'],
+                        data['kontekst_czasowy'], data['rok_zrodlowy'], data['okres_danych'],
+                        data['region'], data['wojewodztwo'], data['db_name']
+                    ))
+                else:
+                    # Edycja
+                    cur.execute("""
+                        UPDATE projects SET
+                            short_code = %s, nazwa = %s, pelna_nazwa = %s,
+                            kontekst_czasowy = %s, rok_zrodlowy = %s, okres_danych = %s,
+                            region = %s, wojewodztwo = %s, db_name = %s
+                        WHERE id = %s
+                    """, (
+                        data['short_code'], data['nazwa'], data['pelna_nazwa'],
+                        data['kontekst_czasowy'], data['rok_zrodlowy'], data['okres_danych'],
+                        data['region'], data['wojewodztwo'], data['db_name'],
+                        self.project['id']
+                    ))
+
+                conn.commit()
+
+            conn.close()
+
+            messagebox.showinfo("Sukces", "Miejscowość została zapisana.")
+            if self.on_save_callback:
+                self.on_save_callback()
+            self.destroy()
+
+        except Exception as e:
+            messagebox.showerror("Błąd", f"Nie można zapisać miejscowości:\n{e}")
+
 
 class BackupManager(tk.Toplevel):
     """Okno dialogowe do zarządzania kopiami zapasowymi projektu."""

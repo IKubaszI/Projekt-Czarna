@@ -19,6 +19,12 @@ import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
 
+# Konfiguracja encoding dla Windows
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 # Załaduj zmienne środowiskowe
 load_dotenv()
 
