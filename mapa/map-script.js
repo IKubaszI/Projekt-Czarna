@@ -406,14 +406,8 @@ function renderMapObjects(parcels) {
             }
             layer.bindPopup(popupContent);
 
-            /* Dodawanie etykiet do obiektów niepunktowych */
-            if (props.numer_obiektu && feature.geometry.type !== 'Point') {
-                layer.bindTooltip(props.numer_obiektu.toString(), {
-                    permanent: true,
-                    direction: 'center',
-                    className: 'parcel-label'
-                });
-            }
+            /* Numerki działek - usunięte z powodu problemów z renderowaniem przy Canvas
+               Numerki są widoczne po kliknięciu w popup */
 
             /* Zdarzenia interakcji */
             layer.on({
@@ -521,7 +515,7 @@ function setupOwnerPanel() {
             btnRzeczywiste.onclick = (e) => {
                 e.stopPropagation();
                 const ids = owner.dzialki_rzeczywiste.map(p => p.id);
-                highlightFeaturesByIds(ids, '#00FFFF');  // Cyan - wyrazisty kolor
+                highlightFeaturesByIds(ids, '#00FFFF', `${owner.nazwa_wlasciciela} - Działki rzeczywiste`);
             };
         } else {
             btnRzeczywiste.style.display = "none";
@@ -531,7 +525,7 @@ function setupOwnerPanel() {
             btnProtokol.onclick = (e) => {
                 e.stopPropagation();
                 const ids = owner.dzialki_protokol.map(p => p.id);
-                highlightFeaturesByIds(ids, '#FFFF00');  // Żółty - wyrazisty kolor
+                highlightFeaturesByIds(ids, '#FFFF00', `${owner.nazwa_wlasciciela} - Działki wg protokołu`);
             };
         } else {
             btnProtokol.style.display = "none";
@@ -1379,8 +1373,9 @@ if (clearHighlightBtn) {
  * OPTYMALIZACJA: Używa cache zamiast przeszukiwania wszystkich warstw
  * @param {Array} featureIds - Tablica ID obiektów
  * @param {string} color - Kolor podświetlenia
+ * @param {string} label - Opcjonalna etykieta dla legendy
  */
-function highlightFeaturesByIds(featureIds, color) {
+function highlightFeaturesByIds(featureIds, color, label = null) {
     if (highlightedLayer) {
         map.removeLayer(highlightedLayer);
     }
@@ -1432,9 +1427,33 @@ function highlightFeaturesByIds(featureIds, color) {
         }
 
         document.getElementById("highlight-controls").classList.remove("hidden");
+
+        /* Pokaż prostą legendę jeśli podano etykietę */
+        if (label) {
+            showSimpleHighlightLegend(color, label);
+        }
     }
 
     document.getElementById('selected-count').textContent = highlightedLayer.getLayers().length;
+}
+
+/**
+ * Pokazuje prostą legendę dla pojedynczego podświetlenia.
+ * @param {string} color - Kolor podświetlenia
+ * @param {string} label - Etykieta (np. "Działki rzeczywiste")
+ */
+function showSimpleHighlightLegend(color, label) {
+    const legendElement = document.getElementById("owner-highlight-legend");
+    const legendList = legendElement.querySelector("ul");
+
+    legendList.innerHTML = `
+        <li>
+            <span class="legend-color-box" style="background-color: ${color};"></span>
+            <span>${label}</span>
+        </li>
+    `;
+
+    legendElement.classList.remove("hidden");
 }
 
 /**
@@ -1555,7 +1574,7 @@ function handleUrlParameters() {
 
     /* Zastosowanie podświetleń */
     if (idsToHighlight.size > 0) {
-        highlightFeaturesByIds(Array.from(idsToHighlight), '#FF00FF');  // Magenta - wyrazisty kolor
+        highlightFeaturesByIds(Array.from(idsToHighlight), '#FF00FF', 'Podświetlone działki');
     }
     
     if (popupInfo) {

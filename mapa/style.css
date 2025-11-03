@@ -797,7 +797,7 @@ html, body {
 
 .map-overlay.bottom-right {
     bottom: 20px;
-    right: 20px;
+    right: 100px;  /* Przesunięte bardziej do środka - nie nachodzi na panele */
 }
 
 /* Kontrolki podświetlania */
