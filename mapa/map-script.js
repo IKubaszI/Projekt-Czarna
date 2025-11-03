@@ -791,6 +791,10 @@ function setupParcelPanel() {
         const showBtn = item.querySelector('.parcel-show-btn');
         showBtn.addEventListener('click', (e) => {
             e.stopPropagation();
+
+            // Odznacz wszystkie filtry w legendzie, aby lepiej zobaczyć działkę
+            uncheckAllLegendFilters();
+
             const layer = findLayerById(parcel.id);
             if (layer) {
                 if (layer.getBounds) {
@@ -2023,6 +2027,10 @@ function createSpecialObjectItem(item, icon) {
     const showBtn = itemEl.querySelector('.special-show-btn');
     showBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+
+        // Odznacz wszystkie filtry w legendzie, aby lepiej zobaczyć obiekt
+        uncheckAllLegendFilters();
+
         const layer = findLayerById(item.id);
         if (layer) {
             if (layer.getBounds) {
@@ -2153,6 +2161,20 @@ function createLegendItem(kategoria, label, style) {
     });
     
     return li;
+}
+
+/**
+ * Odznacza wszystkie filtry w legendzie, aby lepiej zobaczyć konkretne działki.
+ */
+function uncheckAllLegendFilters() {
+    const legendCheckboxes = document.querySelectorAll('.legend-checkbox');
+    legendCheckboxes.forEach(checkbox => {
+        if (checkbox.checked) {
+            checkbox.checked = false;
+            // Uruchom event change, aby ukryć warstwy
+            checkbox.dispatchEvent(new Event('change'));
+        }
+    });
 }
 
 /**
