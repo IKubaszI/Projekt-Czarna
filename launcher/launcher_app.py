@@ -32,6 +32,13 @@ except ImportError:
     messagebox.showerror("Brak zależności", "Biblioteka Pillow jest wymagana.\nZainstaluj: pip install Pillow")
     sys.exit(1)
 
+# Import selektora projektów
+try:
+    from project_selector import ProjectSelectorFrame
+except ImportError:
+    ProjectSelectorFrame = None
+    print("⚠️ Nie można załadować modułu project_selector - funkcja zarządzania projektami niedostępna")
+
 # =============================================================================
 # KONFIGURACJA DPI DLA WINDOWS
 # =============================================================================
@@ -454,9 +461,25 @@ class AppLauncher(tk.Tk):
             header_frame, text="🗺️ System Zarządzania Mapą Katastralną",
             style="Heading.TLabel", font=("Segoe UI", self.base_font_size + 4, "bold")
         ).pack(side=tk.LEFT)
-        
+
         ttk.Label(header_frame, text="Status: Gotowy", foreground=COLORS['success']).pack(side=tk.RIGHT, padx=10)
-        
+
+        # Sekcja wyboru projektu (jeśli dostępna)
+        if ProjectSelectorFrame:
+            try:
+                db_config = get_db_config_from_env()
+                project_frame = ttk.LabelFrame(main_frame, text="📁 Zarządzanie Projektami", padding="10")
+                project_frame.pack(fill=tk.X, pady=(0, 10))
+
+                project_selector = ProjectSelectorFrame(
+                    project_frame,
+                    db_config,
+                    on_project_change=self.on_project_changed
+                )
+                project_selector.pack(fill=tk.X)
+            except Exception as e:
+                print(f"⚠️ Nie można załadować selektora projektów: {e}")
+
         # Sekcja operacji głównych
         operations_frame = ttk.LabelFrame(main_frame, text="⚙️ Operacje Główne", padding="10")
         operations_frame.pack(fill=tk.X, pady=5)
@@ -1022,6 +1045,28 @@ if __name__ == '__main__':
     def show_network_info_dialog(self, local_ip):
         """Wyświetla okno dialogowe z informacjami o dostępie sieciowym."""
         NetworkInfoDialog(self, local_ip)
+
+    def on_project_changed(self, project):
+        """
+        Obsługuje zmianę aktywnego projektu.
+
+        Args:
+            project: Dane wybranego projektu
+        """
+        self.log(f"📁 Przełączono na projekt: {project['nazwa']}\n")
+        self.log(f"   Aby zmiany zostały zastosowane, uruchom ponownie serwer backend.\n")
+
+        # Jeśli serwer jest uruchomiony, zapytaj o restart
+        if "backend" in self.managed_processes:
+            response = messagebox.askyesno(
+                "Restart serwera",
+                "Serwer backend jest uruchomiony.\n\n"
+                "Czy chcesz go zrestartować, aby zastosować zmiany projektu?"
+            )
+
+            if response:
+                self.stop_managed_process("backend")
+                self.after(1000, self.toggle_server)  # Uruchom ponownie po 1s
 
     def on_closing(self):
         """Obsługuje zdarzenie zamknięcia głównego okna."""

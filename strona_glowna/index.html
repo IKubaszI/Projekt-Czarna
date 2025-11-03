@@ -220,13 +220,53 @@
     <!-- ==========================================================================
          SKRYPTY
          ========================================================================== -->
+
+    <!-- Moduł ładowania metadanych projektu -->
+    <script src="/assets/js/project-loader.js"></script>
+
     <script>
+        /**
+         * Inicjalizacja projektu - dynamiczne ładowanie metadanych
+         */
+        document.addEventListener('DOMContentLoaded', async function() {
+            try {
+                // Załaduj metadane projektu
+                const project = await ProjectLoader.load();
+
+                // Aktualizuj tytuł strony
+                document.title = `Interaktywna Mapa Katastralna ${project.pelna_nazwa || project.nazwa} - ${project.kontekst_czasowy || 'XIX wiek'}`;
+
+                // Aktualizuj meta description
+                const metaDesc = document.querySelector('meta[name="description"]');
+                if (metaDesc && project.opis) {
+                    metaDesc.content = project.opis;
+                }
+
+                // Aktualizuj tekst na stronie
+                document.querySelectorAll('.project-name').forEach(el => {
+                    el.textContent = project.nazwa || 'Czarna';
+                });
+
+                document.querySelectorAll('.project-full-name').forEach(el => {
+                    el.textContent = project.pelna_nazwa || project.nazwa || 'Czarna';
+                });
+
+                document.querySelectorAll('.project-context').forEach(el => {
+                    el.textContent = project.kontekst_czasowy || 'XIX wiek';
+                });
+
+                console.log('✅ Strona zainicjalizowana z projektem:', project.nazwa);
+            } catch (error) {
+                console.error('❌ Błąd ładowania metadanych projektu:', error);
+            }
+        });
+
         /**
          * Animacja płynnego pojawiania się elementów podczas przewijania
          */
         document.addEventListener('DOMContentLoaded', function() {
             const elements = document.querySelectorAll('.feature-item, .doc-card');
-            
+
             // Obserwator sprawdzający widoczność elementów
             const observer = new IntersectionObserver((entries) => {
                 entries.forEach((entry, index) => {
@@ -238,7 +278,7 @@
                     }
                 });
             }, { threshold: 0.1 });
-            
+
             // Rozpoczęcie obserwacji wszystkich elementów
             elements.forEach(el => observer.observe(el));
         });

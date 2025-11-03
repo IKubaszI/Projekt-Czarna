@@ -24,6 +24,9 @@ from datetime import datetime, timedelta
 from collections import Counter
 import time
 
+# Import systemu zarządzania projektami
+from project_manager import ProjectManager
+
 # =============================================================================
 # CACHE GENEALOGII - prosty cache w pamięci dla optymalizacji
 # =============================================================================
@@ -90,7 +93,7 @@ ADMIN_AUTH_ENABLED = os.environ.get('ADMIN_AUTH_ENABLED', '0') == '1'
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
 ADMIN_PASSWORD_HASH = os.environ.get('ADMIN_PASSWORD_HASH', '')
 
-# Konfiguracja połączenia z bazą danych PostgreSQL
+# Konfiguracja połączenia z bazą danych PostgreSQL (baza master)
 DB_CONFIG = {
     "host": get_env_variable("DB_HOST", "localhost"),
     "dbname": get_env_variable("DB_NAME", "mapa_czarna_db"),
@@ -100,12 +103,42 @@ DB_CONFIG = {
 }
 
 # =============================================================================
+# SYSTEM ZARZĄDZANIA PROJEKTAMI
+# =============================================================================
+
+# Inicjalizacja managera projektów
+project_manager = None
+
+def init_project_manager():
+    """Inicjalizuje menedżera projektów."""
+    global project_manager
+    try:
+        project_manager = ProjectManager(DB_CONFIG)
+        print("✅ System zarządzania projektami zainicjalizowany")
+    except Exception as e:
+        print(f"⚠️ Nie można zainicjalizować systemu projektów: {e}")
+        print("⚠️ System będzie działać w trybie legacy (bez obsługi projektów)")
+
+# Inicjalizuj przy starcie
+init_project_manager()
+
+# =============================================================================
 # POMOCNICZE FUNKCJE BAZODANOWE
 # =============================================================================
 
 def get_db_connection():
-    """Tworzy i zwraca połączenie z bazą danych PostgreSQL."""
-    conn = psycopg2.connect(**DB_CONFIG)
+    """
+    Tworzy i zwraca połączenie z bazą danych PostgreSQL.
+    Jeśli system projektów jest aktywny, zwraca połączenie do bazy aktywnego projektu.
+    W przeciwnym razie zwraca połączenie do bazy master (tryb legacy).
+    """
+    if project_manager and project_manager.active_project_id:
+        # Tryb multi-projektowy - zwróć połączenie do bazy aktywnego projektu
+        conn = project_manager.get_project_connection()
+    else:
+        # Tryb legacy - zwróć połączenie do bazy master
+        conn = psycopg2.connect(**DB_CONFIG)
+
     conn.set_client_encoding('UTF8')  # Obsługa polskich znaków
     return conn
 
@@ -2349,6 +2382,259 @@ def clear_login_logs():
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         conn.close()
+
+# =============================================================================
+# API ZARZĄDZANIA PROJEKTAMI
+# =============================================================================
+
+@app.route('/api/projects', methods=['GET'])
+def get_projects():
+    """Pobiera listę wszystkich projektów."""
+    if not project_manager:
+        return jsonify({
+            "status": "error",
+            "message": "System projektów nie jest zainicjalizowany"
+        }), 500
+
+    try:
+        projects = project_manager.get_all_projects()
+        return jsonify({
+            "status": "success",
+            "projects": projects
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/projects/<int:project_id>', methods=['GET'])
+def get_project(project_id):
+    """Pobiera szczegóły konkretnego projektu."""
+    if not project_manager:
+        return jsonify({
+            "status": "error",
+            "message": "System projektów nie jest zainicjalizowany"
+        }), 500
+
+    try:
+        project = project_manager.get_project(project_id)
+        if not project:
+            return jsonify({
+                "status": "error",
+                "message": f"Projekt o ID {project_id} nie istnieje"
+            }), 404
+
+        return jsonify({
+            "status": "success",
+            "project": project
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/projects', methods=['POST'])
+def create_project():
+    """Tworzy nowy projekt."""
+    if not project_manager:
+        return jsonify({
+            "status": "error",
+            "message": "System projektów nie jest zainicjalizowany"
+        }), 500
+
+    # Sprawdź autoryzację admina
+    if ADMIN_AUTH_ENABLED and not session.get('admin_logged_in'):
+        return jsonify({
+            "status": "error",
+            "message": "Brak autoryzacji"
+        }), 401
+
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                "status": "error",
+                "message": "Brak danych projektu"
+            }), 400
+
+        project = project_manager.create_project(data)
+
+        return jsonify({
+            "status": "success",
+            "message": "Projekt utworzony pomyślnie",
+            "project": project
+        }), 201
+    except ValueError as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/projects/<int:project_id>', methods=['PUT'])
+def update_project(project_id):
+    """Aktualizuje dane projektu."""
+    if not project_manager:
+        return jsonify({
+            "status": "error",
+            "message": "System projektów nie jest zainicjalizowany"
+        }), 500
+
+    # Sprawdź autoryzację admina
+    if ADMIN_AUTH_ENABLED and not session.get('admin_logged_in'):
+        return jsonify({
+            "status": "error",
+            "message": "Brak autoryzacji"
+        }), 401
+
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                "status": "error",
+                "message": "Brak danych do aktualizacji"
+            }), 400
+
+        project = project_manager.update_project(project_id, data)
+
+        return jsonify({
+            "status": "success",
+            "message": "Projekt zaktualizowany pomyślnie",
+            "project": project
+        })
+    except ValueError as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/projects/<int:project_id>', methods=['DELETE'])
+def delete_project(project_id):
+    """Usuwa projekt (tylko metadane)."""
+    if not project_manager:
+        return jsonify({
+            "status": "error",
+            "message": "System projektów nie jest zainicjalizowany"
+        }), 500
+
+    # Sprawdź autoryzację admina
+    if ADMIN_AUTH_ENABLED and not session.get('admin_logged_in'):
+        return jsonify({
+            "status": "error",
+            "message": "Brak autoryzacji"
+        }), 401
+
+    try:
+        success = project_manager.delete_project(project_id)
+        if success:
+            return jsonify({
+                "status": "success",
+                "message": "Projekt usunięty pomyślnie"
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": "Nie można usunąć projektu"
+            }), 400
+    except ValueError as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/projects/switch/<int:project_id>', methods=['POST'])
+def switch_project(project_id):
+    """Przełącza aktywny projekt."""
+    if not project_manager:
+        return jsonify({
+            "status": "error",
+            "message": "System projektów nie jest zainicjalizowany"
+        }), 500
+
+    # Sprawdź autoryzację admina
+    if ADMIN_AUTH_ENABLED and not session.get('admin_logged_in'):
+        return jsonify({
+            "status": "error",
+            "message": "Brak autoryzacji"
+        }), 401
+
+    try:
+        project = project_manager.switch_project(project_id)
+
+        # Wyczyść cache genealogii przy przełączaniu projektu
+        clear_genealogy_cache()
+
+        # Przeładuj konfigurację systemową z nowego projektu
+        load_system_config()
+
+        return jsonify({
+            "status": "success",
+            "message": f"Przełączono na projekt: {project['nazwa']}",
+            "project": project
+        })
+    except ValueError as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/project-info', methods=['GET'])
+def get_active_project_info():
+    """Zwraca informacje o aktualnie aktywnym projekcie."""
+    if not project_manager:
+        # Tryb legacy - zwróć domyślne dane dla Czarnej
+        return jsonify({
+            "status": "success",
+            "project": {
+                "nazwa": "Czarna",
+                "pelna_nazwa": "Gmina Czarna",
+                "kontekst_czasowy": "XIX wiek",
+                "rok_zrodlowy": 1880,
+                "okres_danych": "1850-1900",
+                "region": "Powiat Mielecki",
+                "wojewodztwo": "Podkarpackie",
+                "opis": "System mapy katastralnej dla miejscowości Czarna"
+            }
+        })
+
+    try:
+        project = project_manager.get_active_project()
+        if not project:
+            return jsonify({
+                "status": "error",
+                "message": "Brak aktywnego projektu"
+            }), 404
+
+        return jsonify({
+            "status": "success",
+            "project": project
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 
 # =============================================================================
 # URUCHOMIENIE SERWERA
