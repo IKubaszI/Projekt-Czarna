@@ -438,10 +438,10 @@ function renderMapObjects(parcels) {
 
 /**
  * OPTYMALIZACJA: Konfiguruje warunkowe wyświetlanie tooltips według poziomu zoom.
- * Wyświetla etykiety działek tylko gdy zoom > 15 dla lepszej wydajności.
+ * Wyświetla etykiety działek tylko gdy zoom > 13 dla lepszej wydajności.
  */
 function setupConditionalTooltips() {
-    const ZOOM_THRESHOLD = 15;
+    const ZOOM_THRESHOLD = 13;  // Obniżony próg - napisy widoczne wcześniej
 
     const updateTooltips = () => {
         if (!geojsonLayer) return;
