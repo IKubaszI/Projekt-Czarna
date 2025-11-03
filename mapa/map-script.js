@@ -12,26 +12,68 @@ document.addEventListener("DOMContentLoaded", initializeApp);
    ========================================================================== */
 
 /* Instancje głównych obiektów */
-let map = null;                    
-let allOwnersData = [];            
-let allParcelsData = [];           
+let map = null;
+let allOwnersData = [];
+let allParcelsData = [];
 let geojsonLayer = null;
-let historicalMapOverlay = null;           
-let layersByCategory = {};         
+let historicalMapOverlay = null;
+let layersByCategory = {};
 
 /* Stan interfejsu */
-let isInCompareMode = false;       
-let selectedForCompare = [];       
+let isInCompareMode = false;
+let selectedForCompare = [];
 
 /* Warstwy podświetleń */
-let highlightedLayer = null;       
-let ownerHighlightLayer = null;    
+let highlightedLayer = null;
+let ownerHighlightLayer = null;
 
 /* Paleta kolorów dla właścicieli */
 const HIGHLIGHT_COLORS = [
-    "#E6194B", "#F58231", "#FFE119", "#BFDF45", "#3CB44B", 
+    "#E6194B", "#F58231", "#FFE119", "#BFDF45", "#3CB44B",
     "#42D4F4", "#4363D8", "#911EB4", "#F032E6", "#A9A9A9"
 ];
+
+/* Cache dla szybkiego dostępu do warstw */
+let layersCache = new Map();
+
+/* ==========================================================================
+   FUNKCJE POMOCNICZE - OPTYMALIZACJA WYDAJNOŚCI
+   ========================================================================== */
+
+/**
+ * Debounce - opóźnia wywołanie funkcji do momentu gdy przestanie być wywoływana
+ * @param {Function} func - Funkcja do opóźnienia
+ * @param {number} wait - Czas oczekiwania w ms
+ * @returns {Function} Funkcja z debounce
+ */
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+/**
+ * Throttle - ogranicza częstotliwość wywołania funkcji
+ * @param {Function} func - Funkcja do ograniczenia
+ * @param {number} limit - Minimalny czas między wywołaniami w ms
+ * @returns {Function} Funkcja z throttle
+ */
+function throttle(func, limit) {
+    let inThrottle;
+    return function(...args) {
+        if (!inThrottle) {
+            func.apply(this, args);
+            inThrottle = true;
+            setTimeout(() => inThrottle = false, limit);
+        }
+    };
+}
 
 /* ==========================================================================
    INICJALIZACJA APLIKACJI
@@ -106,7 +148,14 @@ function initializeMap() {
     ];
 
     historicalMapOverlay = L.imageOverlay("mapa.jpg", historicalBounds);
-    geojsonLayer = L.geoJSON();
+
+    /* OPTYMALIZACJA: Używamy Canvas Renderer dla lepszej wydajności z dużą liczbą obiektów */
+    const canvasRenderer = L.canvas({
+        padding: 0.5,
+        tolerance: 10  // Większa tolerancja dla lepszej responsywności kliknięć
+    });
+
+    geojsonLayer = L.geoJSON(null, { renderer: canvasRenderer });
 
     /* Konfiguracja mapy - maxBounds nieco większe niż historicalBounds */
     const padding = 0.01; // Padding dla maxBounds
@@ -119,7 +168,8 @@ function initializeMap() {
         layers: [satelliteLayer, historicalMapOverlay, geojsonLayer],
         maxBounds: maxBounds,
         minZoom: 12,
-        maxZoom: 18
+        maxZoom: 18,
+        preferCanvas: true  // Preferuj Canvas zamiast SVG dla lepszej wydajności
     }).setView([defaults.center.lat, defaults.center.lng], defaults.zoom);
 
     /* Kontroler warstw */
@@ -134,18 +184,20 @@ function initializeMap() {
         "Podkład mapy historycznej z XIX w.": historicalMapOverlay
     };
 
-    L.control.layers(baseMaps, overlayMaps, { 
+    L.control.layers(baseMaps, overlayMaps, {
         position: 'topright',
         collapsed: true
     }).addTo(map);
 
-    /* Wyświetlanie współrzędnych kursora */
-    map.on("mousemove", (e) => {
+    /* OPTYMALIZACJA: Throttle dla współrzędnych myszy - aktualizacja max co 100ms */
+    const updateCoordinates = throttle((e) => {
         const coordsDiv = document.getElementById("mouse-coordinates");
         if (coordsDiv) {
             coordsDiv.innerHTML = `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
         }
-    });
+    }, 100);
+
+    map.on("mousemove", updateCoordinates);
 
     console.log("✅ Mapa zainicjalizowana");
 }
@@ -290,17 +342,29 @@ function renderMapObjects(parcels) {
         map.removeLayer(geojsonLayer);
     }
 
+    /* OPTYMALIZACJA: Czyścimy cache warstw przed renderowaniem */
+    layersCache.clear();
+
+    /* OPTYMALIZACJA: Używamy Canvas Renderer */
+    const canvasRenderer = L.canvas({ padding: 0.5 });
+
     /* Tworzenie warstwy GeoJSON */
     geojsonLayer = L.geoJSON(parcels, {
         style: (feature) => STYLES[feature.properties.kategoria] || STYLES.default,
-        
+        renderer: canvasRenderer,
+
         pointToLayer: (feature, latlng) =>
             L.marker(latlng, { icon: ICONS[feature.properties.kategoria] }),
-        
+
         onEachFeature: (feature, layer) => {
             const props = feature.properties;
             const kategoria = props.kategoria || "default";
-            
+
+            /* OPTYMALIZACJA: Dodajemy warstwę do cache według ID dla szybkiego dostępu */
+            if (feature.id) {
+                layersCache.set(feature.id, layer);
+            }
+
             /* Grupowanie warstw według kategorii */
             if (!layersByCategory[kategoria]) {
                 layersByCategory[kategoria] = [];
@@ -334,6 +398,7 @@ function renderMapObjects(parcels) {
     }).addTo(map);
 
     console.log("✅ Zakończono rysowanie obiektów");
+    console.log(`📦 Cache zawiera ${layersCache.size} warstw`);
 }
 
 /* ==========================================================================
@@ -485,7 +550,7 @@ function setupOwnerPanel() {
      */
     const sortAndFilter = () => {
         let data = [...allOwnersData];
-        
+
         if (currentSort === "byName") {
             data.sort((a, b) => a.nazwa_wlasciciela.localeCompare(b.nazwa_wlasciciela, "pl"));
         } else if (currentSort === "byParcels") {
@@ -503,6 +568,9 @@ function setupOwnerPanel() {
 
         render(filtered);
     };
+
+    /* OPTYMALIZACJA: Debounce dla sortAndFilter - opóźnienie 250ms */
+    const debouncedSortAndFilter = debounce(sortAndFilter, 250);
 
     /**
      * Obsługuje kliknięcie na właściciela.
@@ -582,20 +650,20 @@ function setupOwnerPanel() {
             });
         });
         
-        /* Wyszukiwarka */
+        /* Wyszukiwarka - OPTYMALIZACJA: używamy debounced wersji */
         if (searchInput) {
-            searchInput.addEventListener("input", sortAndFilter);
-            
+            searchInput.addEventListener("input", debouncedSortAndFilter);
+
             const clearBtn = searchInput.parentElement.querySelector('.clear-search');
             if (clearBtn) {
                 searchInput.addEventListener('input', () => {
                     clearBtn.style.display = searchInput.value ? 'block' : 'none';
                 });
-                
+
                 clearBtn.addEventListener('click', () => {
                     searchInput.value = '';
                     clearBtn.style.display = 'none';
-                    sortAndFilter();
+                    sortAndFilter();  // Bez debounce przy czyszczeniu
                 });
             }
         }
@@ -723,38 +791,43 @@ function setupParcelPanel() {
         return item;
     };
 
+    /* OPTYMALIZACJA: Debounced wersja funkcji wyszukiwania działek */
+    const handleParcelSearch = () => {
+        // Sprawdź która zakładka jest aktywna
+        const activeTab = document.querySelector('.tab-btn.active');
+        const activeTabType = activeTab?.dataset.tab;
+
+        if (activeTabType === 'special') {
+            // Dla zakładki specjalnej używaj dedykowanej funkcji
+            renderSpecialObjects(searchInput.value);
+
+            // Podświetl na mapie dokładne dopasowania
+            const searchTerm = searchInput.value.toLowerCase().trim();
+            if (searchTerm.length > 0) {
+                const exactMatches = allParcelsData.filter(p => {
+                    const kategoria = p.properties.kategoria;
+                    const isSpecial = ['kapliczka', 'budynek', 'obiekt_specjalny'].includes(kategoria);
+                    const numer = (p.properties.numer_obiektu || '').toLowerCase();
+                    return isSpecial && numer === searchTerm;
+                });
+                exactMatches.forEach(p => findAndHighlightLayer(p.id, true, "orange"));
+            } else {
+                // Wyczyść podświetlenia gdy puste
+                if (geojsonLayer) {
+                    geojsonLayer.eachLayer(layer => geojsonLayer.resetStyle(layer));
+                }
+            }
+        } else {
+            // Dla innych zakładek standardowy render
+            render();
+        }
+    };
+
+    const debouncedParcelSearch = debounce(handleParcelSearch, 250);
+
     /* Konfiguracja listenerów */
     if (searchInput) {
-        searchInput.addEventListener("input", () => {
-            // Sprawdź która zakładka jest aktywna
-            const activeTab = document.querySelector('.tab-btn.active');
-            const activeTabType = activeTab?.dataset.tab;
-
-            if (activeTabType === 'special') {
-                // Dla zakładki specjalnej używaj dedykowanej funkcji
-                renderSpecialObjects(searchInput.value);
-
-                // Podświetl na mapie dokładne dopasowania
-                const searchTerm = searchInput.value.toLowerCase().trim();
-                if (searchTerm.length > 0) {
-                    const exactMatches = allParcelsData.filter(p => {
-                        const kategoria = p.properties.kategoria;
-                        const isSpecial = ['kapliczka', 'budynek', 'obiekt_specjalny'].includes(kategoria);
-                        const numer = (p.properties.numer_obiektu || '').toLowerCase();
-                        return isSpecial && numer === searchTerm;
-                    });
-                    exactMatches.forEach(p => findAndHighlightLayer(p.id, true, "orange"));
-                } else {
-                    // Wyczyść podświetlenia gdy puste
-                    if (geojsonLayer) {
-                        geojsonLayer.eachLayer(layer => geojsonLayer.resetStyle(layer));
-                    }
-                }
-            } else {
-                // Dla innych zakładek standardowy render
-                render();
-            }
-        });
+        searchInput.addEventListener("input", debouncedParcelSearch);
     }
     
     /* Obsługa zakładek */
@@ -1106,8 +1179,8 @@ function setupUniversalSearch() {
         return [...ownerResults, ...parcelResults].slice(0, 10);
     };
 
-    /* Listenery */
-    searchInput.addEventListener('input', () => {
+    /* OPTYMALIZACJA: Debounced wersja wyszukiwania */
+    const handleUniversalSearch = () => {
         const term = searchInput.value.toLowerCase().trim();
 
         if (term.length < 2) {
@@ -1117,7 +1190,12 @@ function setupUniversalSearch() {
 
         const results = performSearch(term);
         renderResults(results);
-    });
+    };
+
+    const debouncedUniversalSearch = debounce(handleUniversalSearch, 200);
+
+    /* Listenery */
+    searchInput.addEventListener('input', debouncedUniversalSearch);
 
     resultsContainer.addEventListener('click', e => {
         const item = e.target.closest('.search-result-item');
@@ -1254,6 +1332,7 @@ if (clearHighlightBtn) {
 
 /**
  * Podświetla obiekty na mapie według ID.
+ * OPTYMALIZACJA: Używa cache zamiast przeszukiwania wszystkich warstw
  * @param {Array} featureIds - Tablica ID obiektów
  * @param {string} color - Kolor podświetlenia
  */
@@ -1261,7 +1340,7 @@ function highlightFeaturesByIds(featureIds, color) {
     if (highlightedLayer) {
         map.removeLayer(highlightedLayer);
     }
-    
+
     highlightedLayer = new L.FeatureGroup();
 
     const highlightStyle = {
@@ -1271,22 +1350,23 @@ function highlightFeaturesByIds(featureIds, color) {
         fillOpacity: 0.5,
     };
 
-    /* Tworzenie warstw podświetleń */
-    geojsonLayer.eachLayer(layer => {
-        if (featureIds.includes(layer.feature.id)) {
-            let clonedLayer;
-            
-            if (layer instanceof L.Polygon) {
-                clonedLayer = L.polygon(layer.getLatLngs(), highlightStyle);
-            } else if (layer instanceof L.Polyline) {
-                clonedLayer = L.polyline(layer.getLatLngs(), { ...highlightStyle, fill: false });
-            } else if (layer instanceof L.Marker) {
-                clonedLayer = L.circleMarker(layer.getLatLng(), { radius: 10, ...highlightStyle });
-            }
-            
-            if (clonedLayer) {
-                highlightedLayer.addLayer(clonedLayer);
-            }
+    /* OPTYMALIZACJA: Bezpośredni dostęp do warstw przez cache */
+    featureIds.forEach(featureId => {
+        const layer = findLayerById(featureId);
+        if (!layer) return;
+
+        let clonedLayer;
+
+        if (layer instanceof L.Polygon) {
+            clonedLayer = L.polygon(layer.getLatLngs(), highlightStyle);
+        } else if (layer instanceof L.Polyline) {
+            clonedLayer = L.polyline(layer.getLatLngs(), { ...highlightStyle, fill: false });
+        } else if (layer instanceof L.Marker) {
+            clonedLayer = L.circleMarker(layer.getLatLng(), { radius: 10, ...highlightStyle });
+        }
+
+        if (clonedLayer) {
+            highlightedLayer.addLayer(clonedLayer);
         }
     });
 
@@ -1655,20 +1735,29 @@ function getCenterOfFeature(feature) {
 
 /**
  * Znajduje warstwę według ID.
+ * OPTYMALIZACJA: Używa cache zamiast przeszukiwania wszystkich warstw
  * @param {number} featureId - ID obiektu
  * @returns {L.Layer|null} Warstwa lub null
  */
 function findLayerById(featureId) {
+    /* OPTYMALIZACJA: Najpierw sprawdź cache */
+    if (layersCache.has(featureId)) {
+        return layersCache.get(featureId);
+    }
+
+    /* Fallback: Jeśli nie ma w cache, przeszukaj warstwy (dla kompatybilności wstecznej) */
     let foundLayer = null;
-    
+
     if (geojsonLayer) {
         geojsonLayer.eachLayer(layer => {
             if (layer.feature.id === featureId) {
                 foundLayer = layer;
+                /* Dodaj do cache dla przyszłych wywołań */
+                layersCache.set(featureId, layer);
             }
         });
     }
-    
+
     return foundLayer;
 }
 
