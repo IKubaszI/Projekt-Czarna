@@ -19,7 +19,48 @@ from flask import Flask, render_template, jsonify, request, redirect, url_for
 # ==========================================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.abspath(os.path.join(BASE_DIR, os.pardir, os.pardir))
-BACKUP_DIR = os.path.join(PROJECT_DIR, "backup")
+
+# Funkcje pomocnicze do zarządzania projektami
+def get_active_project_name():
+    """Pobiera nazwę aktywnego projektu z bazy danych."""
+    try:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+
+        env_path = os.path.join(PROJECT_DIR, "backend", ".env")
+        db_config = {"host": "localhost", "dbname": "mapa_czarna_db", "user": "postgres", "password": "1234", "port": "5432"}
+
+        if os.path.exists(env_path):
+            with open(env_path, 'r') as f:
+                for line in f:
+                    if line.startswith('DB_'):
+                        key, val = line.strip().split('=', 1)
+                        if key == 'DB_HOST': db_config['host'] = val
+                        elif key == 'DB_NAME': db_config['dbname'] = val
+                        elif key == 'DB_USER': db_config['user'] = val
+                        elif key == 'DB_PASSWORD': db_config['password'] = val
+                        elif key == 'DB_PORT': db_config['port'] = val
+
+        conn = psycopg2.connect(**db_config)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT nazwa FROM projects WHERE is_active = true LIMIT 1;")
+            result = cur.fetchone()
+        conn.close()
+
+        return result['nazwa'] if result else 'Czarna'
+    except:
+        return 'Czarna'
+
+def get_project_backup_folder():
+    """Zwraca folder backupu dla aktywnego projektu."""
+    project_name = get_active_project_name()
+    backup_base = os.path.join(PROJECT_DIR, "backup")
+    project_backup = os.path.join(backup_base, project_name)
+    os.makedirs(project_backup, exist_ok=True)
+    return project_backup
+
+# Dynamiczne ścieżki dla aktywnego projektu
+BACKUP_DIR = get_project_backup_folder()
 DATA_FILE_PATH = os.path.join(BACKUP_DIR, "parcels_data.json")
 
 # ==========================================================================

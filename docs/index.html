@@ -603,6 +603,146 @@ erDiagram
               <li><b>Backup i archiwizacja:</b> Pliki te stanowią doskonałą, niezależną od bazy danych kopię zapasową danych źródłowych.</li>
             </ul>
           </div>
+
+          <div class="tech-subsection">
+            <h3>3. System Multi-Projektowy - Zarządzanie Wieloma Miejscowościami</h3>
+            <p>
+              <b>Cel:</b> System umożliwia zarządzanie danymi dla wielu miejscowości (Czarna, Borowa, Trzebinia, etc.)
+              w ramach jednej aplikacji. Zasada działania: <strong>jeden kod - wiele projektów</strong>.
+            </p>
+
+            <h4>Architektura Danych</h4>
+            <p>
+              Każda miejscowość ma swoją <strong>własną bazę danych PostgreSQL</strong>:
+            </p>
+            <ul>
+              <li><code>mapa_czarna_db</code> - baza master zawierająca tabelę <code>projects</code> oraz dane dla Czarnej</li>
+              <li><code>borowa_db</code> - osobna baza dla Borowej</li>
+              <li><code>trzebinia_db</code> - osobna baza dla Trzebini</li>
+              <li>... kolejne miejscowości według potrzeb</li>
+            </ul>
+            <p>
+              Tabela <code>projects</code> w bazie <code>mapa_czarna_db</code> przechowuje metadane wszystkich projektów:
+              nazwę, powiat, województwo, okres danych, informację o aktywnym projekcie, etc.
+            </p>
+
+            <h4>Uruchomienie Systemu</h4>
+            <p>
+              System jest w pełni automatyczny - nie wymaga żadnych ręcznych kroków inicjalizacji:
+            </p>
+            <ol>
+              <li><strong>Uruchom Launcher</strong> (<code>launcher/launcher_app.py</code>)</li>
+              <li>Launcher automatycznie:
+                <ul>
+                  <li>Sprawdzi czy tabela <code>projects</code> istnieje</li>
+                  <li>Jeśli nie - utworzy ją i doda Czarną jako pierwszy projekt</li>
+                  <li>Wyświetli dropdown z wyborem miejscowości</li>
+                </ul>
+              </li>
+              <li><strong>Uruchom serwer backend</strong> przyciskiem "🚀 Uruchom Serwer Backend"</li>
+            </ol>
+
+            <h4>Dodawanie Nowej Miejscowości</h4>
+            <p><strong>Metoda 1: Przez API</strong></p>
+            <pre><code>curl -X POST http://127.0.0.1:5000/api/projects \
+  -H "Content-Type: application/json" \
+  -d '{
+    "short_code": "borowa",
+    "nazwa": "Borowa",
+    "pelna_nazwa": "Gmina Borowa",
+    "kontekst_czasowy": "XIX wiek",
+    "rok_zrodlowy": 1880,
+    "okres_danych": "1850-1900",
+    "region": "Powiat Pilźnieński",
+    "wojewodztwo": "Podkarpackie"
+  }'</code></pre>
+
+            <p><strong>Metoda 2: Przez PostgreSQL</strong></p>
+            <pre><code>INSERT INTO projects (
+    short_code, nazwa, pelna_nazwa, kontekst_czasowy,
+    rok_zrodlowy, region, wojewodztwo, db_name
+) VALUES (
+    'borowa', 'Borowa', 'Gmina Borowa', 'XIX wiek',
+    1880, 'Powiat Pilźnieński', 'Podkarpackie', 'borowa_db'
+);</code></pre>
+
+            <h4>Import Danych dla Nowej Miejscowości</h4>
+            <ol>
+              <li><strong>Utwórz bazę danych:</strong> <code>CREATE DATABASE borowa_db ENCODING 'UTF8';</code></li>
+              <li><strong>Skopiuj strukturę tabel:</strong>
+                <pre><code>pg_dump -s -U postgres mapa_czarna_db | psql -U postgres borowa_db</code></pre>
+              </li>
+              <li><strong>Przełącz aktywny projekt:</strong>
+                <pre><code>UPDATE projects SET is_active = false;
+UPDATE projects SET is_active = true WHERE short_code = 'borowa';</code></pre>
+              </li>
+              <li><strong>Zrestartuj serwer</strong> i zaimportuj dane przez <code>migrate_data.py</code></li>
+            </ol>
+
+            <h4>Struktura Backupów</h4>
+            <p>
+              Każdy projekt ma swój folder backupów: <code>backup/Czarna/</code>, <code>backup/Borowa/</code>, etc.
+              Menedżer Kopii Zapasowych w launcherze obsługuje:
+            </p>
+            <ul>
+              <li><strong>Backup aktywnego projektu</strong> - tworzy kopię tylko dla wybranej miejscowości</li>
+              <li><strong>Backup wszystkich projektów</strong> - tworzy kopie dla każdej miejscowości jednocześnie</li>
+            </ul>
+
+            <h4>API Endpointy</h4>
+            <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+              <thead>
+                <tr style="background: #f0f0f0;">
+                  <th style="border: 1px solid #ddd; padding: 8px;">Metoda</th>
+                  <th style="border: 1px solid #ddd; padding: 8px;">Endpoint</th>
+                  <th style="border: 1px solid #ddd; padding: 8px;">Opis</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style="border: 1px solid #ddd; padding: 8px;"><code>GET</code></td>
+                  <td style="border: 1px solid #ddd; padding: 8px;"><code>/api/projects</code></td>
+                  <td style="border: 1px solid #ddd; padding: 8px;">Lista wszystkich projektów</td>
+                </tr>
+                <tr>
+                  <td style="border: 1px solid #ddd; padding: 8px;"><code>GET</code></td>
+                  <td style="border: 1px solid #ddd; padding: 8px;"><code>/api/projects/{id}</code></td>
+                  <td style="border: 1px solid #ddd; padding: 8px;">Szczegóły projektu</td>
+                </tr>
+                <tr>
+                  <td style="border: 1px solid #ddd; padding: 8px;"><code>POST</code></td>
+                  <td style="border: 1px solid #ddd; padding: 8px;"><code>/api/projects</code></td>
+                  <td style="border: 1px solid #ddd; padding: 8px;">Utwórz nowy projekt</td>
+                </tr>
+                <tr>
+                  <td style="border: 1px solid #ddd; padding: 8px;"><code>PUT</code></td>
+                  <td style="border: 1px solid #ddd; padding: 8px;"><code>/api/projects/{id}</code></td>
+                  <td style="border: 1px solid #ddd; padding: 8px;">Aktualizuj projekt</td>
+                </tr>
+                <tr>
+                  <td style="border: 1px solid #ddd; padding: 8px;"><code>DELETE</code></td>
+                  <td style="border: 1px solid #ddd; padding: 8px;"><code>/api/projects/{id}</code></td>
+                  <td style="border: 1px solid #ddd; padding: 8px;">Usuń projekt</td>
+                </tr>
+                <tr>
+                  <td style="border: 1px solid #ddd; padding: 8px;"><code>POST</code></td>
+                  <td style="border: 1px solid #ddd; padding: 8px;"><code>/api/projects/switch/{id}</code></td>
+                  <td style="border: 1px solid #ddd; padding: 8px;">Przełącz aktywny projekt</td>
+                </tr>
+                <tr>
+                  <td style="border: 1px solid #ddd; padding: 8px;"><code>GET</code></td>
+                  <td style="border: 1px solid #ddd; padding: 8px;"><code>/api/project-info</code></td>
+                  <td style="border: 1px solid #ddd; padding: 8px;">Metadane aktywnego projektu</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <h4>Przełączanie Między Miejscowościami</h4>
+            <p>
+              Wybierz miejscowość z dropdownu w launcherze i zrestartuj serwer backend.
+              System automatycznie połączy się z odpowiednią bazą danych.
+            </p>
+          </div>
         </section>
 
 <!-- Sekcja: Instalacja - Krok 1 -->

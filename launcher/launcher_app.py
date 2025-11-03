@@ -36,6 +36,88 @@ except ImportError:
 # FUNKCJE SYSTEMU PROJEKTÓW - ZINTEGROWANE
 # =============================================================================
 
+def get_active_project_from_db():
+    """Pobiera aktywny projekt z bazy danych."""
+    try:
+        db_config = get_db_config_from_env()
+        conn = psycopg2.connect(**db_config)
+        conn.set_client_encoding('UTF8')
+
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT * FROM projects
+                WHERE is_active = true
+                LIMIT 1;
+            """)
+            project = cur.fetchone()
+
+        conn.close()
+        return dict(project) if project else None
+    except Exception as e:
+        print(f"❌ Błąd pobierania aktywnego projektu: {e}")
+        return None
+
+def get_all_projects_from_db():
+    """Pobiera wszystkie projekty z bazy danych."""
+    try:
+        db_config = get_db_config_from_env()
+        conn = psycopg2.connect(**db_config)
+        conn.set_client_encoding('UTF8')
+
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT * FROM projects
+                ORDER BY nazwa ASC;
+            """)
+            projects = cur.fetchall()
+
+        conn.close()
+        return [dict(p) for p in projects] if projects else []
+    except Exception as e:
+        print(f"❌ Błąd pobierania projektów: {e}")
+        return []
+
+def switch_project_in_db(project_id):
+    """Przełącza aktywny projekt."""
+    try:
+        db_config = get_db_config_from_env()
+        conn = psycopg2.connect(**db_config)
+        conn.set_client_encoding('UTF8')
+
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # Dezaktywuj wszystkie
+            cur.execute("UPDATE projects SET is_active = false;")
+
+            # Aktywuj wybrany
+            cur.execute("""
+                UPDATE projects
+                SET is_active = true
+                WHERE id = %s
+                RETURNING *;
+            """, (project_id,))
+
+            project = cur.fetchone()
+            conn.commit()
+
+        conn.close()
+        return dict(project) if project else None
+    except Exception as e:
+        print(f"❌ Błąd przełączania projektu: {e}")
+        return None
+
+def get_project_backup_folder(project_name=None):
+    """
+    Zwraca folder backupu dla projektu.
+    Jeśli project_name nie podano, używa aktywnego projektu.
+    """
+    if project_name is None:
+        active = get_active_project_from_db()
+        project_name = active['nazwa'] if active else 'Czarna'
+
+    project_backup = os.path.join(BACKUP_FOLDER, project_name)
+    os.makedirs(project_backup, exist_ok=True)
+    return project_backup
+
 def check_and_init_multi_project_system():
     """
     Sprawdza czy system projektów istnieje. Jeśli nie - automatycznie inicjalizuje.
@@ -114,23 +196,33 @@ ICONS_SCAN_FOLDERS = [
     os.path.join(ASSETS_FOLDER, "icons"),
 ]
 
-DATA_FILES = {
-    "owners": {
-        "path": os.path.join(BACKUP_FOLDER, "owner_data_to_import.json"),
-        "name": "Właściciele i Demografia",
-        "related": [os.path.join(BACKUP_FOLDER, "demografia.json")],
-    },
-    "parcels": {
-        "path": os.path.join(BACKUP_FOLDER, "parcels_data.json"),
-        "name": "Działki (Geometria)",
-        "related": [],
-    },
-    "genealogy": {
-        "path": os.path.join(BACKUP_FOLDER, "genealogia.json"),
-        "name": "Genealogia",
-        "related": [],
-    },
-}
+def get_data_files_for_project(project_name=None):
+    """
+    Zwraca ścieżki do plików danych dla danego projektu.
+    Jeśli project_name nie podano, używa aktywnego projektu.
+    """
+    backup_folder = get_project_backup_folder(project_name)
+
+    return {
+        "owners": {
+            "path": os.path.join(backup_folder, "owner_data_to_import.json"),
+            "name": "Właściciele i Demografia",
+            "related": [os.path.join(backup_folder, "demografia.json")],
+        },
+        "parcels": {
+            "path": os.path.join(backup_folder, "parcels_data.json"),
+            "name": "Działki (Geometria)",
+            "related": [],
+        },
+        "genealogy": {
+            "path": os.path.join(backup_folder, "genealogia.json"),
+            "name": "Genealogia",
+            "related": [],
+        },
+    }
+
+# Dla kompatybilności wstecznej - używa aktywnego projektu
+DATA_FILES = get_data_files_for_project()
 
 URLS = {
     "strona_glowna": "http://127.0.0.1:5000/strona_glowna/index.html",
@@ -289,7 +381,7 @@ def _save_favicon_to_database(filename):
         pass
 
 def check_backup_folder_files():
-    """Sprawdza folder backup i tworzy brakujące pliki JSON."""
+    """Sprawdza folder backup i tworzy brakujące pliki JSON dla aktywnego projektu."""
     files_to_check = {
         "map_config.json": {
             "calibration": {"sw": {"lat": 50.0414, "lng": 21.2261}, "ne": {"lat": 50.0814, "lng": 21.2661}},
@@ -300,11 +392,22 @@ def check_backup_folder_files():
         "demografia.json": [],
         "genealogia.json": {"persons": []}
     }
-    
+
+    # Utwórz główny folder backup
     os.makedirs(BACKUP_FOLDER, exist_ok=True)
-    
+
+    # Pobierz aktywny projekt
+    active_project = get_active_project_from_db()
+    if active_project:
+        project_backup = get_project_backup_folder(active_project['nazwa'])
+        print(f"📁 Sprawdzanie plików backupu dla: {active_project['nazwa']}")
+    else:
+        # Fallback - utwórz dla Czarnej
+        project_backup = get_project_backup_folder('Czarna')
+        print(f"📁 Sprawdzanie plików backupu dla: Czarna (domyślna)")
+
     for filename, default_content in files_to_check.items():
-        path = os.path.join(BACKUP_FOLDER, filename)
+        path = os.path.join(project_backup, filename)
         if not os.path.exists(path):
             try:
                 with open(path, 'w', encoding='utf-8') as f:
@@ -514,6 +617,33 @@ class AppLauncher(tk.Tk):
         ).pack(side=tk.LEFT)
 
         ttk.Label(header_frame, text="Status: Gotowy", foreground=COLORS['success']).pack(side=tk.RIGHT, padx=10)
+
+        # Widget wyboru projektu/miejscowości
+        project_frame = ttk.Frame(main_frame)
+        project_frame.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(project_frame, text="📍 Miejscowość:", font=("Segoe UI", self.base_font_size, "bold")).pack(side=tk.LEFT, padx=(0, 5))
+
+        self.project_var = tk.StringVar()
+        self.project_combo = ttk.Combobox(
+            project_frame,
+            textvariable=self.project_var,
+            state='readonly',
+            width=25,
+            font=("Segoe UI", self.base_font_size)
+        )
+        self.project_combo.pack(side=tk.LEFT, padx=(0, 10))
+        self.project_combo.bind('<<ComboboxSelected>>', self.on_project_selected)
+
+        ttk.Button(
+            project_frame,
+            text="🔄 Odśwież",
+            command=self.refresh_projects,
+            style="Primary.TButton"
+        ).pack(side=tk.LEFT, padx=(0, 5))
+
+        # Załaduj projekty
+        self.refresh_projects()
 
         # Sekcja operacji głównych
         operations_frame = ttk.LabelFrame(main_frame, text="⚙️ Operacje Główne", padding="10")
@@ -1080,6 +1210,99 @@ if __name__ == '__main__':
     def show_network_info_dialog(self, local_ip):
         """Wyświetla okno dialogowe z informacjami o dostępie sieciowym."""
         NetworkInfoDialog(self, local_ip)
+
+    def refresh_projects(self):
+        """Odświeża listę projektów w dropdownie."""
+        try:
+            projects = get_all_projects_from_db()
+            active_project = get_active_project_from_db()
+
+            if not projects:
+                self.project_combo['values'] = ["Czarna (domyślna)"]
+                self.project_var.set("Czarna (domyślna)")
+                return
+
+            # Mapowanie ID -> projekt
+            self.projects_map = {p['id']: p for p in projects}
+
+            # Lista nazw do wyświetlenia
+            project_names = [p['nazwa'] for p in projects]
+            self.project_combo['values'] = project_names
+
+            # Zaznacz aktywny projekt
+            if active_project:
+                self.project_var.set(active_project['nazwa'])
+                self.log(f"📍 Aktywna miejscowość: {active_project['nazwa']}\n")
+            elif projects:
+                self.project_var.set(projects[0]['nazwa'])
+
+        except Exception as e:
+            print(f"❌ Błąd odświeżania projektów: {e}")
+            self.project_combo['values'] = ["Czarna (domyślna)"]
+            self.project_var.set("Czarna (domyślna)")
+
+    def on_project_selected(self, event=None):
+        """Obsługuje zmianę projektu w dropdownie."""
+        selected_name = self.project_var.get()
+
+        if not selected_name or selected_name == "Czarna (domyślna)":
+            return
+
+        # Znajdź projekt po nazwie
+        selected_project = None
+        for project in self.projects_map.values():
+            if project['nazwa'] == selected_name:
+                selected_project = project
+                break
+
+        if not selected_project:
+            return
+
+        # Sprawdź czy to ten sam projekt
+        active = get_active_project_from_db()
+        if active and active['id'] == selected_project['id']:
+            return  # Już aktywny
+
+        # Potwierdź zmianę
+        response = messagebox.askyesno(
+            "Zmiana miejscowości",
+            f"Czy chcesz przełączyć się na:\n\n"
+            f"   {selected_project['nazwa']}\n"
+            f"   {selected_project.get('region', '')}\n\n"
+            f"Wymaga to restartu serwera backend."
+        )
+
+        if not response:
+            # Przywróć poprzedni wybór
+            if active:
+                self.project_var.set(active['nazwa'])
+            return
+
+        # Przełącz projekt
+        result = switch_project_in_db(selected_project['id'])
+
+        if result:
+            self.log(f"\n{'='*60}\n")
+            self.log(f"📍 Przełączono na miejscowość: {selected_project['nazwa']}\n")
+            self.log(f"{'='*60}\n\n")
+
+            # Jeśli serwer działa - zapytaj o restart
+            if "backend" in self.managed_processes:
+                restart = messagebox.askyesno(
+                    "Restart serwera",
+                    "Serwer backend jest uruchomiony.\n\n"
+                    "Czy chcesz go zrestartować?"
+                )
+
+                if restart:
+                    self.log("🔄 Restartowanie serwera backend...\n")
+                    self.stop_managed_process("backend")
+                    self.after(1500, self.toggle_server)
+        else:
+            messagebox.showerror("Błąd", "Nie można przełączyć projektu")
+            # Przywróć poprzedni wybór
+            if active:
+                self.project_var.set(active['nazwa'])
 
     def on_closing(self):
         """Obsługuje zdarzenie zamknięcia głównego okna."""
@@ -1959,42 +2182,46 @@ class InstructionsWindow(tk.Toplevel):
 
 class BackupManager(tk.Toplevel):
     """Okno dialogowe do zarządzania kopiami zapasowymi projektu."""
-    
+
     def __init__(self, parent):
         super().__init__(parent)
         self.transient(parent)
         self.title("💾 Uniwersalny Menedżer Kopii Zapasowych")
-        
+
+        # Pobierz aktywny projekt i wszystkie projekty
+        self.active_project = get_active_project_from_db()
+        self.all_projects = get_all_projects_from_db()
+
         # Automatyczne dostosowanie do ekranu
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         dpi = self.winfo_fpixels("1i")
         scale_factor = dpi / 96
-        
+
         if sw <= 1920:
             w, h = min(int(sw * 0.75), 1100), min(int(sh * 0.80), 700)
         else:
             w, h = min(int(sw * 0.60), 1200), min(int(sh * 0.75), 800)
-        
+
         if scale_factor > 1.25:
             w = int(w / scale_factor * 1.3)
             h = int(h / scale_factor * 1.3)
-        
+
         x = (sw - w) // 2
         y = (sh - h) // 2
-        
+
         self.geometry(f"{w}x{h}+{x}+{y}")
         self.minsize(800, 600)
         self.grab_set()
-        
+
         # Konfiguracja stylów
         base_size = 10 if scale_factor <= 1.25 else (11 if scale_factor <= 1.5 else 12)
         self.base_font_size = base_size
-        
+
         self.style = ttk.Style(self)
         row_height = int(base_size * 2.5)
         self.style.configure("Treeview", rowheight=row_height, font=("Segoe UI", base_size))
         self.style.configure("Treeview.Heading", font=("Segoe UI", base_size, "bold"))
-        
+
         self.create_widgets()
         self.populate_backup_list()
 
@@ -2002,40 +2229,55 @@ class BackupManager(tk.Toplevel):
         """Tworzy interfejs menedżera kopii."""
         main_frame = ttk.Frame(self, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
-        
+
         # Sekcja tworzenia kopii
         create_frame = ttk.LabelFrame(main_frame, text="➕ Stwórz Nową Kopię Zapasową", padding="10")
         create_frame.pack(fill=tk.X, pady=(0, 10))
-        
+
+        # Zakres kopii (wybór projektu)
+        scope_frame = ttk.Frame(create_frame)
+        scope_frame.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(scope_frame, text="📍 Zakres kopii:", font=("Segoe UI", self.base_font_size, "bold")).pack(side=tk.LEFT, padx=(0, 10))
+
+        self.backup_scope = tk.StringVar(value="current")
+        ttk.Radiobutton(scope_frame, text=f"Tylko aktywny projekt: {self.active_project['nazwa'] if self.active_project else 'Czarna'}",
+                       variable=self.backup_scope, value="current").pack(side=tk.LEFT, padx=10)
+        ttk.Radiobutton(scope_frame, text=f"Wszystkie projekty ({len(self.all_projects)})",
+                       variable=self.backup_scope, value="all").pack(side=tk.LEFT, padx=10)
+
+        # Separator
+        ttk.Separator(create_frame, orient='horizontal').pack(fill=tk.X, pady=10)
+
         # Checkboxy
         self.backup_vars = {key: tk.BooleanVar(value=True) for key in DATA_FILES}
         self.backup_vars["scans"] = tk.BooleanVar(value=True)
         self.backup_vars["config"] = tk.BooleanVar(value=True)
-        
+
         content_frame = ttk.Frame(create_frame)
         content_frame.pack(fill=tk.X)
-        
+
         checkbox_frame = ttk.Frame(content_frame)
         checkbox_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
+
         col1 = ttk.Frame(checkbox_frame)
         col1.pack(side=tk.LEFT, padx=10)
-        
+
         checkboxes = [
             ("📋 Właściciele i Demografia", "owners"),
             ("🗺️ Działki (geometria)", "parcels"),
             ("📍 Konfiguracja Mapy", "config")
         ]
-        
+
         for text, var_key in checkboxes:
             ttk.Checkbutton(col1, text=text, variable=self.backup_vars[var_key]).pack(anchor="w", pady=2)
-        
+
         col2 = ttk.Frame(checkbox_frame)
         col2.pack(side=tk.LEFT, padx=10)
-        
+
         ttk.Checkbutton(col2, text="🌳 Genealogia", variable=self.backup_vars["genealogy"]).pack(anchor="w", pady=2)
         ttk.Checkbutton(col2, text="📄 Skany Protokołów", variable=self.backup_vars["scans"]).pack(anchor="w", pady=2)
-        
+
         ttk.Button(content_frame, text="🎯 Stwórz Kopię ZIP", command=self.create_backup,
                   style="Success.TButton").pack(side=tk.RIGHT, padx=10)
         
@@ -2078,78 +2320,92 @@ class BackupManager(tk.Toplevel):
         self.import_btn.pack(side=tk.LEFT, padx=2)
 
     def populate_backup_list(self):
-        """Wczytuje listę plików kopii zapasowych."""
+        """Wczytuje listę plików kopii zapasowych dla aktywnego projektu."""
         for item in self.tree.get_children():
             self.tree.delete(item)
-        
+
+        if not self.active_project:
+            return
+
         try:
-            files = [f for f in os.listdir(BACKUP_FOLDER) 
+            project_backup_folder = get_project_backup_folder(self.active_project['nazwa'])
+            files = [f for f in os.listdir(project_backup_folder)
                     if f.startswith("pelny_backup_projektu_") and f.endswith(".zip")]
             files.sort(reverse=True)
-            
+
             for filename in files:
-                self.tree.insert("", "end", iid=filename, values=(filename,))
+                # Dodaj nazwę projektu do wyświetlania
+                display_name = f"[{self.active_project['nazwa']}] {filename}"
+                # Przechowuj pełną ścieżkę jako ID
+                full_path = os.path.join(project_backup_folder, filename)
+                self.tree.insert("", "end", iid=full_path, values=(display_name,))
         except FileNotFoundError:
             pass
-        
+
         self.on_select()
 
     def on_select(self, event=None):
         """Aktualizuje stan przycisków w zależności od zaznaczenia."""
         selected = self.tree.selection()
-        
+
         if selected:
-            self.selected_backup_file = selected[0]
-            display_name = self.selected_backup_file[:37] + "..." if len(self.selected_backup_file) > 40 else self.selected_backup_file
+            self.selected_backup_path = selected[0]  # Pełna ścieżka do pliku
+            filename = os.path.basename(self.selected_backup_path)
+            display_name = filename[:37] + "..." if len(filename) > 40 else filename
             self.selected_label.config(text=f"📂 {display_name}", foreground=COLORS['primary'])
-            
+
             for btn in [self.restore_btn, self.delete_btn, self.export_btn]:
                 btn.config(state=tk.NORMAL)
         else:
-            self.selected_backup_file = None
+            self.selected_backup_path = None
             self.selected_label.config(text="📭 Nic nie zaznaczono", foreground=COLORS['secondary'])
-            
+
             for btn in [self.restore_btn, self.delete_btn, self.export_btn]:
                 btn.config(state=tk.DISABLED)
 
     def export_backup(self):
         """Eksportuje zaznaczoną kopię zapasową."""
-        if not self.selected_backup_file:
+        if not self.selected_backup_path:
             messagebox.showwarning("⚠️ Brak zaznaczenia", "Najpierw zaznacz plik.", parent=self)
             return
-        
-        source_path = os.path.join(BACKUP_FOLDER, self.selected_backup_file)
+
+        filename = os.path.basename(self.selected_backup_path)
         destination_path = filedialog.asksaveasfilename(
-            initialfile=self.selected_backup_file, defaultextension=".zip",
+            initialfile=filename, defaultextension=".zip",
             filetypes=[("Archiwum ZIP", "*.zip")], title="Wybierz, gdzie zapisać"
         )
-        
+
         if destination_path:
             try:
-                shutil.copy2(source_path, destination_path)
+                shutil.copy2(self.selected_backup_path, destination_path)
                 messagebox.showinfo("✅ Sukces", "Kopia zapasowa została wyeksportowana.", parent=self)
             except Exception as e:
                 messagebox.showerror("❌ Błąd", f"Nie udało się zapisać:\n{e}", parent=self)
 
     def import_backup(self):
-        """Importuje kopię zapasową z zewnętrznej lokalizacji."""
+        """Importuje kopię zapasową z zewnętrznej lokalizacji do aktywnego projektu."""
         source_path = filedialog.askopenfilename(
             filetypes=[("Archiwum ZIP", "*.zip")], title="Wybierz plik kopii zapasowej"
         )
-        
+
         if not source_path:
             return
-        
+
+        if not self.active_project:
+            messagebox.showerror("❌ Błąd", "Brak aktywnego projektu.", parent=self)
+            return
+
         filename = os.path.basename(source_path)
-        destination_path = os.path.join(BACKUP_FOLDER, filename)
-        
+        project_backup_folder = get_project_backup_folder(self.active_project['nazwa'])
+        destination_path = os.path.join(project_backup_folder, filename)
+
         if os.path.exists(destination_path):
             if not messagebox.askyesno("⚠️ Plik istnieje", f"Plik '{filename}' już istnieje.\nNadpisać?", parent=self):
                 return
-        
+
         try:
             shutil.copy2(source_path, destination_path)
-            messagebox.showinfo("✅ Sukces", f"Plik '{filename}' został zaimportowany.", parent=self)
+            messagebox.showinfo("✅ Sukces", f"Plik '{filename}' został zaimportowany do projektu {self.active_project['nazwa']}.", parent=self)
             self.populate_backup_list()
         except Exception as e:
             messagebox.showerror("❌ Błąd", f"Nie udało się skopiować:\n{e}", parent=self)
@@ -2167,79 +2423,119 @@ class BackupManager(tk.Toplevel):
     def _perform_backup(self, progress_callback, components):
         """Wykonuje tworzenie kopii zapasowej."""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_scope = self.backup_scope.get()
+
+        if backup_scope == "all":
+            # Backup wszystkich projektów
+            return self._backup_all_projects(progress_callback, components, timestamp)
+        else:
+            # Backup tylko aktywnego projektu
+            return self._backup_single_project(progress_callback, components, timestamp, self.active_project)
+
+    def _backup_single_project(self, progress_callback, components, timestamp, project):
+        """Wykonuje backup pojedynczego projektu."""
+        if not project:
+            raise Exception("Brak projektu do backupu")
+
+        project_name = project['nazwa']
         backup_filename = f"pelny_backup_projektu_{timestamp}.zip"
-        backup_path = os.path.join(BACKUP_FOLDER, backup_filename)
-        
+        project_backup_folder = get_project_backup_folder(project_name)
+        backup_path = os.path.join(project_backup_folder, backup_filename)
+
         files_to_zip = []
-        
+
+        # Pobierz ścieżki dla tego projektu
+        data_files = get_data_files_for_project(project_name)
+
         # Zbieranie plików
         if self.backup_vars["config"].get():
-            map_config_path = os.path.join(BACKUP_FOLDER, "map_config.json")
+            map_config_path = os.path.join(project_backup_folder, "map_config.json")
             if os.path.exists(map_config_path):
                 files_to_zip.append((map_config_path, "map_config.json"))
-        
+
         for key in ["owners", "parcels", "genealogy"]:
             if self.backup_vars[key].get():
-                if os.path.exists(DATA_FILES[key]["path"]):
-                    files_to_zip.append((DATA_FILES[key]["path"], os.path.basename(DATA_FILES[key]["path"])))
-                for related_path in DATA_FILES[key].get("related", []):
+                if os.path.exists(data_files[key]["path"]):
+                    files_to_zip.append((data_files[key]["path"], os.path.basename(data_files[key]["path"])))
+                for related_path in data_files[key].get("related", []):
                     if os.path.exists(related_path):
                         files_to_zip.append((related_path, os.path.basename(related_path)))
-        
+
         if self.backup_vars["scans"].get() and os.path.exists(PROTOKOLY_FOLDER):
             for root, _, files in os.walk(PROTOKOLY_FOLDER):
                 for file in files:
                     file_path = os.path.join(root, file)
                     arcname = os.path.relpath(file_path, BASE_DIR)
                     files_to_zip.append((file_path, arcname))
-        
+
         # Tworzenie archiwum
         with zipfile.ZipFile(backup_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for i, (file_path, arcname) in enumerate(files_to_zip):
-                progress_callback(i + 1, len(files_to_zip), f"Pakowanie: {os.path.basename(arcname)}")
+                progress_callback(i + 1, len(files_to_zip), f"[{project_name}] Pakowanie: {os.path.basename(arcname)}")
                 zf.write(file_path, arcname)
-        
-        return backup_filename
+
+        return f"{project_name}: {backup_filename}"
+
+    def _backup_all_projects(self, progress_callback, components, timestamp):
+        """Wykonuje backup wszystkich projektów."""
+        results = []
+        total_projects = len(self.all_projects)
+
+        for idx, project in enumerate(self.all_projects):
+            progress_callback(idx, total_projects, f"Tworzenie kopii dla: {project['nazwa']}")
+            try:
+                result = self._backup_single_project(progress_callback, components, timestamp, project)
+                results.append(f"✅ {result}")
+            except Exception as e:
+                results.append(f"❌ {project['nazwa']}: {str(e)}")
+
+        return "\n".join(results)
 
     def delete_backup(self):
         """Usuwa zaznaczony plik kopii zapasowej."""
-        if not hasattr(self, "selected_backup_file") or not self.selected_backup_file:
+        if not hasattr(self, "selected_backup_path") or not self.selected_backup_path:
             return
-        
-        if messagebox.askyesno("🗑️ Potwierdzenie", f"Czy na pewno usunąć:\n\n{self.selected_backup_file}?",
+
+        filename = os.path.basename(self.selected_backup_path)
+        if messagebox.askyesno("🗑️ Potwierdzenie", f"Czy na pewno usunąć:\n\n{filename}?",
                                parent=self, icon="warning"):
-            backup_path = os.path.join(BACKUP_FOLDER, self.selected_backup_file)
             try:
-                os.remove(backup_path)
-                messagebox.showinfo("✅ Sukces", f"Usunięto: {self.selected_backup_file}", parent=self)
+                os.remove(self.selected_backup_path)
+                messagebox.showinfo("✅ Sukces", f"Usunięto: {filename}", parent=self)
                 self.populate_backup_list()
             except Exception as e:
                 messagebox.showerror("❌ Błąd", f"Nie udało się usunąć:\n{e}", parent=self)
 
     def restore_backup(self):
-        """Przywraca dane z wybranej kopii zapasowej."""
-        selected = self.tree.selection()
-        if not selected:
+        """Przywraca dane z wybranej kopii zapasowej do aktywnego projektu."""
+        if not hasattr(self, "selected_backup_path") or not self.selected_backup_path:
             return
-        
-        filename = selected[0]
-        
+
+        if not self.active_project:
+            messagebox.showerror("❌ Błąd", "Brak aktywnego projektu.", parent=self)
+            return
+
+        filename = os.path.basename(self.selected_backup_path)
+        project_name = self.active_project['nazwa']
+
         msg = (f"⚠️ UWAGA! Ta operacja jest NIEODWRACALNA.\n\n"
-               f"Czy na pewno przywrócić dane z:\n'{filename}'?\n\n"
+               f"Czy na pewno przywrócić dane z:\n'{filename}'\n"
+               f"do projektu: {project_name}?\n\n"
                "Spowoduje to:\n"
-               "• NADPISANIE wszystkich istniejących danych\n"
+               "• NADPISANIE wszystkich istniejących danych projektu\n"
                "• ZASTĄPIENIE folderu ze skanami\n"
                "• UTRATĘ wszystkich niezapisanych zmian")
-        
+
         if not messagebox.askyesno("⚠️ POTWIERDZENIE KRYTYCZNEJ OPERACJI", msg, icon="warning", parent=self):
             return
-        
-        backup_path = os.path.join(BACKUP_FOLDER, filename)
-        
+
+        project_backup_folder = get_project_backup_folder(project_name)
+        data_files = get_data_files_for_project(project_name)
+
         try:
-            with zipfile.ZipFile(backup_path, "r") as zf:
+            with zipfile.ZipFile(self.selected_backup_path, "r") as zf:
                 archive_contents = zf.namelist()
-                
+
                 # Przywracanie skanów
                 scan_files = [f for f in archive_contents if f.startswith("assets/protokoly/")]
                 if scan_files:
@@ -2248,23 +2544,23 @@ class BackupManager(tk.Toplevel):
                     for file_info in zf.infolist():
                         if file_info.filename.startswith("assets/protokoly/"):
                             zf.extract(file_info, path=BASE_DIR)
-                
-                # Przywracanie plików JSON
+
+                # Przywracanie plików JSON do folderu projektu
                 if "map_config.json" in archive_contents:
-                    zf.extract("map_config.json", path=BACKUP_FOLDER)
-                
+                    zf.extract("map_config.json", path=project_backup_folder)
+
                 for key in ["owners", "parcels", "genealogy"]:
-                    json_filename = os.path.basename(DATA_FILES[key]["path"])
+                    json_filename = os.path.basename(data_files[key]["path"])
                     if json_filename in archive_contents:
-                        zf.extract(json_filename, path=BACKUP_FOLDER)
-                    
-                    for related_path in DATA_FILES[key].get("related", []):
+                        zf.extract(json_filename, path=project_backup_folder)
+
+                    for related_path in data_files[key].get("related", []):
                         related_filename = os.path.basename(related_path)
                         if related_filename in archive_contents:
-                            zf.extract(related_filename, path=BACKUP_FOLDER)
-            
+                            zf.extract(related_filename, path=project_backup_folder)
+
             messagebox.showinfo("✅ Sukces",
-                              "Kopia zapasowa została przywrócona.\n\n"
+                              f"Kopia zapasowa została przywrócona do projektu {project_name}.\n\n"
                               "Uruchom ponownie edytory, aby zobaczyć zmiany.",
                               parent=self)
         except Exception as e:

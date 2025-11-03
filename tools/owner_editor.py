@@ -35,7 +35,49 @@ if platform.system() == "Windows":
 # ==========================================================================
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
-BACKUP_FOLDER = os.path.join(script_dir, "..", "backup")
+
+# Funkcje pomocnicze do zarządzania projektami
+def get_active_project_name():
+    """Pobiera nazwę aktywnego projektu z bazy danych."""
+    try:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+
+        # Odczytaj config z .env
+        env_path = os.path.join(script_dir, "..", "backend", ".env")
+        db_config = {"host": "localhost", "dbname": "mapa_czarna_db", "user": "postgres", "password": "1234", "port": "5432"}
+
+        if os.path.exists(env_path):
+            with open(env_path, 'r') as f:
+                for line in f:
+                    if line.startswith('DB_'):
+                        key, val = line.strip().split('=', 1)
+                        if key == 'DB_HOST': db_config['host'] = val
+                        elif key == 'DB_NAME': db_config['dbname'] = val
+                        elif key == 'DB_USER': db_config['user'] = val
+                        elif key == 'DB_PASSWORD': db_config['password'] = val
+                        elif key == 'DB_PORT': db_config['port'] = val
+
+        conn = psycopg2.connect(**db_config)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT nazwa FROM projects WHERE is_active = true LIMIT 1;")
+            result = cur.fetchone()
+        conn.close()
+
+        return result['nazwa'] if result else 'Czarna'
+    except:
+        return 'Czarna'  # Fallback
+
+def get_project_backup_folder():
+    """Zwraca folder backupu dla aktywnego projektu."""
+    project_name = get_active_project_name()
+    backup_base = os.path.join(script_dir, "..", "backup")
+    project_backup = os.path.join(backup_base, project_name)
+    os.makedirs(project_backup, exist_ok=True)
+    return project_backup
+
+# Dynamiczne ścieżki dla aktywnego projektu
+BACKUP_FOLDER = get_project_backup_folder()
 JSON_FILE_PATH = os.path.join(BACKUP_FOLDER, "owner_data_to_import.json")
 DEMOGRAFIA_JSON_PATH = os.path.join(BACKUP_FOLDER, "demografia.json")
 JS_FILE_PATH = os.path.join(script_dir, "..", "wlasciciele", "owner.js")
