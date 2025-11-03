@@ -453,29 +453,29 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!haveDifferences && rzeczywistePlots.length > 0) {
             // Pojedynczy przycisk dla identycznych stanów
             const plotIds = rzeczywistePlots.map(p => p.id).join(',');
-            mapLinkReal.href = `${mapUrl}?highlightByIds=${plotIds}`;
+            mapLinkReal.href = `${mapUrl}?highlightByIds=${plotIds}&clearLegend=true`;
             mapLinkReal.innerHTML = '<i class="fas fa-map-marked-alt"></i> Pokaż na mapie';
             mapLinkReal.classList.remove('hidden');
         } else {
             // Osobne przyciski dla różnych stanów
             if (rzeczywistePlots.length > 0) {
                 const plotIds = rzeczywistePlots.map(p => p.id).join(',');
-                mapLinkReal.href = `${mapUrl}?highlightByIds=${plotIds}`;
+                mapLinkReal.href = `${mapUrl}?highlightByIds=${plotIds}&clearLegend=true`;
                 mapLinkReal.classList.remove('hidden');
             }
-            
+
             if (protokolPlots.length > 0) {
                 const plotIds = protokolPlots.map(p => p.id).join(',');
-                mapLinkProtocol.href = `${mapUrl}?highlightByIds=${plotIds}`;
+                mapLinkProtocol.href = `${mapUrl}?highlightByIds=${plotIds}&clearLegend=true`;
                 mapLinkProtocol.classList.remove('hidden');
             }
-            
+
             if (rzeczywistePlots.length > 0 && protokolPlots.length > 0) {
                 const allIds = [...new Set([
                     ...rzeczywistePlots.map(p => p.id),
                     ...protokolPlots.map(p => p.id)
                 ])].join(',');
-                mapLinkBoth.href = `${mapUrl}?highlightByIds=${allIds}`;
+                mapLinkBoth.href = `${mapUrl}?highlightByIds=${allIds}&clearLegend=true`;
                 mapLinkBoth.classList.remove('hidden');
             }
         }
@@ -505,7 +505,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const mapUrl = '../mapa/mapa.html';
             // Pokazujemy TYLKO dom, bez działek, i zoomujemy na nim
-            window.location.href = `${mapUrl}?highlightByIds=${ownerData.dom_obiekt_id}&zoomToFit=true`;
+            window.location.href = `${mapUrl}?highlightByIds=${ownerData.dom_obiekt_id}&zoomToFit=true&clearLegend=true`;
         });
         
         // Przełącznik widoków działek

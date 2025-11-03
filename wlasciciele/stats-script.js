@@ -265,7 +265,7 @@ function initActionButtons() {
     const category = document.getElementById('category-filter')?.value || 'all';
     const topOwners = getTop10Owners(ownership, category);
     const ownerKeys = topOwners.map(o => o.unikalny_klucz).join(',');
-    window.location.href = `../mapa/mapa.html?highlightTopOwners=${encodeURIComponent(ownerKeys)}&ownership=${ownership}`;
+    window.location.href = `../mapa/mapa.html?highlightTopOwners=${encodeURIComponent(ownerKeys)}&ownership=${ownership}&clearLegend=true`;
   });
 
   // Narzędzia analityczne

@@ -159,11 +159,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Tworzenie parametryzowanych linków
   if (mapLinkReal)
-    mapLinkReal.href = `${mapUrl}?${new URLSearchParams({ highlightTopOwners: ownersParam, ownership: "rzeczywista" })}`;
+    mapLinkReal.href = `${mapUrl}?${new URLSearchParams({ highlightTopOwners: ownersParam, ownership: "rzeczywista", clearLegend: "true" })}`;
   if (mapLinkProtocol)
-    mapLinkProtocol.href = `${mapUrl}?${new URLSearchParams({ highlightTopOwners: ownersParam, ownership: "protokol" })}`;
+    mapLinkProtocol.href = `${mapUrl}?${new URLSearchParams({ highlightTopOwners: ownersParam, ownership: "protokol", clearLegend: "true" })}`;
   if (mapLinkBoth)
-    mapLinkBoth.href = `${mapUrl}?${new URLSearchParams({ highlightTopOwners: ownersParam, ownership: "wszystkie" })}`;
+    mapLinkBoth.href = `${mapUrl}?${new URLSearchParams({ highlightTopOwners: ownersParam, ownership: "wszystkie", clearLegend: "true" })}`;
 
   /* ==========================================================================
      MODAL SKANÓW PROTOKOŁU
@@ -1199,7 +1199,8 @@ ${error.stack}
         const allIdsToHighlight = [data.dom_obiekt_id, ...plotIds];
         const uniqueIds = [...new Set(allIdsToHighlight)].join(',');
         const params = new URLSearchParams({
-          highlightByIds: uniqueIds
+          highlightByIds: uniqueIds,
+          clearLegend: "true"
         });
         window.location.href = `${mapUrl}?${params.toString()}`;
       });

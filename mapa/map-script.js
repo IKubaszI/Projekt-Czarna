@@ -1507,6 +1507,12 @@ function handleUrlParameters() {
     const idsToHighlight = new Set();
     let popupInfo = null;
 
+    /* Parametr clearLegend - odznacza wszystkie filtry w legendzie */
+    const clearLegend = params.get("clearLegend");
+    if (clearLegend === "true") {
+        uncheckAllLegendFilters();
+    }
+
     /* Parametr highlightByIds */
     const idsParam = params.get("highlightByIds");
     if (idsParam) {
