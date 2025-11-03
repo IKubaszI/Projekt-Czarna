@@ -782,7 +782,18 @@ html, body {
 
 .map-overlay.bottom-left {
     bottom: 20px;
-    left: 20px;
+    left: 80px;
+    transition: left 0.35s ease;
+}
+
+/* Responsywne pozycjonowanie legendy w zależności od stanu paneli */
+#map-wrapper.expanded-left .map-overlay.bottom-left {
+    left: 40px;
+}
+
+#map-wrapper.full-width .map-overlay.bottom-left {
+    left: 50%;
+    transform: translateX(-50%);
 }
 
 .map-overlay.bottom-right {

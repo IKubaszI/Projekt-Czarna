@@ -147,6 +147,24 @@ function initializeMap() {
         }
     });
 
+    /* Optymalizacja wyświetlania etykiet działek bazując na poziomie zoomu */
+    map.on("zoomend", () => {
+        const currentZoom = map.getZoom();
+        const showLabels = currentZoom >= 15;
+
+        if (geojsonLayer) {
+            geojsonLayer.eachLayer((layer) => {
+                if (layer.getTooltip && layer.getTooltip()) {
+                    if (showLabels) {
+                        layer.openTooltip();
+                    } else {
+                        layer.closeTooltip();
+                    }
+                }
+            });
+        }
+    });
+
     console.log("✅ Mapa zainicjalizowana");
 }
 
@@ -315,13 +333,20 @@ function renderMapObjects(parcels) {
             }
             layer.bindPopup(popupContent);
 
-            /* Dodawanie etykiet do obiektów niepunktowych */
+            /* Dodawanie etykiet do obiektów niepunktowych - z optymalizacją zoomu */
             if (props.numer_obiektu && feature.geometry.type !== 'Point') {
-                layer.bindTooltip(props.numer_obiektu.toString(), {
+                const tooltip = L.tooltip({
                     permanent: true,
                     direction: 'center',
                     className: 'parcel-label'
-                });
+                }).setContent(props.numer_obiektu.toString());
+
+                layer.bindTooltip(tooltip);
+
+                // Początkowa widoczność bazowana na zoomie
+                if (map.getZoom() < 15) {
+                    layer.closeTooltip();
+                }
             }
 
             /* Zdarzenia interakcji */
