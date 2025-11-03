@@ -32,12 +32,60 @@ except ImportError:
     messagebox.showerror("Brak zależności", "Biblioteka Pillow jest wymagana.\nZainstaluj: pip install Pillow")
     sys.exit(1)
 
-# Import selektora projektów
-try:
-    from project_selector import ProjectSelectorFrame
-except ImportError:
-    ProjectSelectorFrame = None
-    print("⚠️ Nie można załadować modułu project_selector - funkcja zarządzania projektami niedostępna")
+# =============================================================================
+# FUNKCJE SYSTEMU PROJEKTÓW - ZINTEGROWANE
+# =============================================================================
+
+def check_and_init_multi_project_system():
+    """
+    Sprawdza czy system projektów istnieje. Jeśli nie - automatycznie inicjalizuje.
+    Uruchamiane przy starcie launchera.
+    """
+    try:
+        db_config = get_db_config_from_env()
+        conn = psycopg2.connect(**db_config)
+        conn.set_client_encoding('UTF8')
+
+        with conn.cursor() as cur:
+            # Sprawdź czy tabela projects istnieje
+            cur.execute("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables
+                    WHERE table_name = 'projects'
+                );
+            """)
+            projects_table_exists = cur.fetchone()[0]
+
+        conn.close()
+
+        if not projects_table_exists:
+            print("⚠️ System projektów nie istnieje. Automatyczna inicjalizacja...")
+            # Uruchom migrację automatycznie
+            migration_script = os.path.join(BACKEND_DIR, 'migrations', 'migrate_to_multi_project.py')
+            if os.path.exists(migration_script):
+                result = subprocess.run(
+                    ['python', migration_script],
+                    cwd=BACKEND_DIR,
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                if result.returncode == 0:
+                    print("✅ System projektów zainicjalizowany automatycznie")
+                    return True
+                else:
+                    print(f"❌ Błąd inicjalizacji: {result.stderr}")
+                    return False
+            else:
+                print(f"❌ Nie znaleziono scriptu migracyjnego: {migration_script}")
+                return False
+        else:
+            print("✅ System projektów już istnieje")
+            return True
+
+    except Exception as e:
+        print(f"❌ Błąd sprawdzania systemu projektów: {e}")
+        return False
 
 # =============================================================================
 # KONFIGURACJA DPI DLA WINDOWS
@@ -326,9 +374,12 @@ class AppLauncher(tk.Tk):
         check_backup_folder_files()
         _auto_sync_site_icon()
 
+        # AUTOMATYCZNA INICJALIZACJA SYSTEMU PROJEKTÓW
+        check_and_init_multi_project_system()
+
         self.create_widgets()
         self._last_port = self.load_flask_config().get("port")
-        
+
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.process_queue()
 
@@ -463,22 +514,6 @@ class AppLauncher(tk.Tk):
         ).pack(side=tk.LEFT)
 
         ttk.Label(header_frame, text="Status: Gotowy", foreground=COLORS['success']).pack(side=tk.RIGHT, padx=10)
-
-        # Sekcja wyboru projektu (jeśli dostępna)
-        if ProjectSelectorFrame:
-            try:
-                db_config = get_db_config_from_env()
-                project_frame = ttk.LabelFrame(main_frame, text="📁 Zarządzanie Projektami", padding="10")
-                project_frame.pack(fill=tk.X, pady=(0, 10))
-
-                project_selector = ProjectSelectorFrame(
-                    project_frame,
-                    db_config,
-                    on_project_change=self.on_project_changed
-                )
-                project_selector.pack(fill=tk.X)
-            except Exception as e:
-                print(f"⚠️ Nie można załadować selektora projektów: {e}")
 
         # Sekcja operacji głównych
         operations_frame = ttk.LabelFrame(main_frame, text="⚙️ Operacje Główne", padding="10")
@@ -1045,28 +1080,6 @@ if __name__ == '__main__':
     def show_network_info_dialog(self, local_ip):
         """Wyświetla okno dialogowe z informacjami o dostępie sieciowym."""
         NetworkInfoDialog(self, local_ip)
-
-    def on_project_changed(self, project):
-        """
-        Obsługuje zmianę aktywnego projektu.
-
-        Args:
-            project: Dane wybranego projektu
-        """
-        self.log(f"📁 Przełączono na projekt: {project['nazwa']}\n")
-        self.log(f"   Aby zmiany zostały zastosowane, uruchom ponownie serwer backend.\n")
-
-        # Jeśli serwer jest uruchomiony, zapytaj o restart
-        if "backend" in self.managed_processes:
-            response = messagebox.askyesno(
-                "Restart serwera",
-                "Serwer backend jest uruchomiony.\n\n"
-                "Czy chcesz go zrestartować, aby zastosować zmiany projektu?"
-            )
-
-            if response:
-                self.stop_managed_process("backend")
-                self.after(1000, self.toggle_server)  # Uruchom ponownie po 1s
 
     def on_closing(self):
         """Obsługuje zdarzenie zamknięcia głównego okna."""
