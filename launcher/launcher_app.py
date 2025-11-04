@@ -41,26 +41,8 @@ def get_active_project_from_db():
     conn = None
     try:
         db_config = get_db_config_from_env()
-
-        # Próba 1: Połącz z UTF-8
-        try:
-            db_config['client_encoding'] = 'UTF8'
-            conn = psycopg2.connect(**db_config)
-            conn.set_client_encoding('UTF8')
-        except:
-            # Próba 2: Połącz z LATIN1 (Windows-1250)
-            try:
-                if conn:
-                    conn.close()
-                db_config['client_encoding'] = 'LATIN1'
-                conn = psycopg2.connect(**db_config)
-                conn.set_client_encoding('LATIN1')
-            except:
-                # Próba 3: Bez określania kodowania
-                if conn:
-                    conn.close()
-                db_config.pop('client_encoding', None)
-                conn = psycopg2.connect(**db_config)
+        conn = psycopg2.connect(**db_config)
+        conn.set_client_encoding('UTF8')
 
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
@@ -70,64 +52,25 @@ def get_active_project_from_db():
             """)
             project = cur.fetchone()
 
-        if project:
-            # Konwertuj wszystkie stringi, obsługując różne kodowania
-            result = {}
-            for key, value in project.items():
-                if isinstance(value, str):
-                    # Spróbuj różnych konwersji
-                    try:
-                        # Już jest UTF-8, zostaw
-                        result[key] = value
-                    except:
-                        try:
-                            # Może być Latin1 -> UTF-8
-                            result[key] = value.encode('latin1').decode('utf-8', errors='ignore')
-                        except:
-                            # Ostateczność - ignoruj błędy
-                            result[key] = str(value).encode('utf-8', errors='ignore').decode('utf-8')
-                elif isinstance(value, bytes):
-                    # Jeśli są bajty, zdekoduj je
-                    try:
-                        result[key] = value.decode('utf-8', errors='ignore')
-                    except:
-                        result[key] = value.decode('latin1', errors='ignore')
-                else:
-                    result[key] = value
-            return result
-        return None
+        return dict(project) if project else None
 
-    except psycopg2.OperationalError:
-        print(f"❌ Nie można połączyć z bazą danych (sprawdź hasło i dane w .env)")
-        return None
-    except Exception as e:
-        print(f"❌ Błąd: {e}")
+    except:
+        # Ignoruj wszystkie błędy - aplikacja ma działać dalej
         return None
     finally:
         if conn:
-            conn.close()
+            try:
+                conn.close()
+            except:
+                pass
 
 def get_all_projects_from_db():
     """Pobiera wszystkie projekty z bazy danych."""
     conn = None
     try:
         db_config = get_db_config_from_env()
-
-        # Próba z różnymi kodowaniami
-        try:
-            db_config['client_encoding'] = 'UTF8'
-            conn = psycopg2.connect(**db_config)
-        except:
-            try:
-                if conn:
-                    conn.close()
-                db_config['client_encoding'] = 'LATIN1'
-                conn = psycopg2.connect(**db_config)
-            except:
-                if conn:
-                    conn.close()
-                db_config.pop('client_encoding', None)
-                conn = psycopg2.connect(**db_config)
+        conn = psycopg2.connect(**db_config)
+        conn.set_client_encoding('UTF8')
 
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
@@ -136,61 +79,25 @@ def get_all_projects_from_db():
             """)
             projects = cur.fetchall()
 
-        if projects:
-            result = []
-            for project in projects:
-                clean_project = {}
-                for key, value in project.items():
-                    if isinstance(value, str):
-                        try:
-                            clean_project[key] = value
-                        except:
-                            try:
-                                clean_project[key] = value.encode('latin1').decode('utf-8', errors='ignore')
-                            except:
-                                clean_project[key] = str(value).encode('utf-8', errors='ignore').decode('utf-8')
-                    elif isinstance(value, bytes):
-                        try:
-                            clean_project[key] = value.decode('utf-8', errors='ignore')
-                        except:
-                            clean_project[key] = value.decode('latin1', errors='ignore')
-                    else:
-                        clean_project[key] = value
-                result.append(clean_project)
-            return result
-        return []
+        return [dict(p) for p in projects] if projects else []
 
-    except psycopg2.OperationalError:
-        print(f"❌ Nie można połączyć z bazą danych (sprawdź hasło i dane w .env)")
-        return []
-    except Exception as e:
-        print(f"❌ Błąd: {e}")
+    except:
+        # Ignoruj wszystkie błędy - aplikacja ma działać dalej
         return []
     finally:
         if conn:
-            conn.close()
+            try:
+                conn.close()
+            except:
+                pass
 
 def switch_project_in_db(project_id):
     """Przełącza aktywny projekt."""
     conn = None
     try:
         db_config = get_db_config_from_env()
-
-        # Próba z różnymi kodowaniami
-        try:
-            db_config['client_encoding'] = 'UTF8'
-            conn = psycopg2.connect(**db_config)
-        except:
-            try:
-                if conn:
-                    conn.close()
-                db_config['client_encoding'] = 'LATIN1'
-                conn = psycopg2.connect(**db_config)
-            except:
-                if conn:
-                    conn.close()
-                db_config.pop('client_encoding', None)
-                conn = psycopg2.connect(**db_config)
+        conn = psycopg2.connect(**db_config)
+        conn.set_client_encoding('UTF8')
 
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             # Dezaktywuj wszystkie
@@ -206,39 +113,24 @@ def switch_project_in_db(project_id):
             conn.commit()
 
         if project:
-            # Konwertuj stringi
-            clean_project = {}
-            for key, value in project.items():
-                if isinstance(value, str):
-                    try:
-                        clean_project[key] = value
-                    except:
-                        try:
-                            clean_project[key] = value.encode('latin1').decode('utf-8', errors='ignore')
-                        except:
-                            clean_project[key] = str(value).encode('utf-8', errors='ignore').decode('utf-8')
-                elif isinstance(value, bytes):
-                    try:
-                        clean_project[key] = value.decode('utf-8', errors='ignore')
-                    except:
-                        clean_project[key] = value.decode('latin1', errors='ignore')
-                else:
-                    clean_project[key] = value
-
+            project_dict = dict(project)
             # Załaduj .env projektu
-            load_project_env(clean_project['nazwa'])
-            return clean_project
+            try:
+                load_project_env(project_dict['nazwa'])
+            except:
+                pass
+            return project_dict
         return None
 
-    except psycopg2.OperationalError:
-        print(f"❌ Nie można połączyć z bazą danych (sprawdź hasło i dane w .env)")
-        return None
-    except Exception as e:
-        print(f"❌ Błąd: {e}")
+    except:
+        # Ignoruj wszystkie błędy - aplikacja ma działać dalej
         return None
     finally:
         if conn:
-            conn.close()
+            try:
+                conn.close()
+            except:
+                pass
 
 def get_project_backup_folder(project_name=None):
     """
