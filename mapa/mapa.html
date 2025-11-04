@@ -58,7 +58,7 @@
             <div class="toolbar-left">
                 <h1 class="app-title">
                     <i class="fas fa-map-marked-alt"></i>
-                    Mapa Katastralna Czarna z XIX w.
+                    Mapa Katastralna <span class="project-name">Czarna</span> z <span class="project-context-short">XIX w.</span>
                 </h1>
                 <div class="toolbar-stats">
                     <span class="stat-badge">
@@ -400,6 +400,50 @@
     <script src="https://unpkg.com/leaflet-draw/dist/leaflet.draw.js"></script>
     <!-- Leaflet MarkerCluster -->
     <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+    <!-- Ładowanie metadanych projektu -->
+    <script src="/assets/js/project-loader.js"></script>
+    <script>
+        /**
+         * Inicjalizacja metadanych projektu
+         */
+        document.addEventListener('DOMContentLoaded', async function() {
+            try {
+                // Załaduj metadane projektu
+                const project = await ProjectLoader.load();
+
+                // Aktualizuj tytuł strony
+                document.title = `Interaktywna Mapa Katastralna - ${project.pelna_nazwa || project.nazwa}`;
+
+                // Aktualizuj meta description
+                const metaDesc = document.querySelector('meta[name="description"]');
+                if (metaDesc) {
+                    metaDesc.content = `Interaktywna mapa katastralna gminy ${project.nazwa} z ${project.kontekst_czasowy || 'XIX wieku'}`;
+                }
+
+                // Aktualizuj meta keywords
+                const metaKeywords = document.querySelector('meta[name="keywords"]');
+                if (metaKeywords) {
+                    metaKeywords.content = `mapa katastralna, ${project.nazwa}, GIS, ${project.kontekst_czasowy || 'XIX wiek'}`;
+                }
+
+                // Aktualizuj nazwę projektu na stronie
+                document.querySelectorAll('.project-name').forEach(el => {
+                    el.textContent = project.nazwa || 'Czarna';
+                });
+
+                // Aktualizuj kontekst czasowy (skrócony)
+                document.querySelectorAll('.project-context-short').forEach(el => {
+                    const context = project.kontekst_czasowy || 'XIX wiek';
+                    // Skróć np. "XIX wiek" -> "XIX w."
+                    el.textContent = context.replace(' wiek', ' w.');
+                });
+
+                console.log('✅ Mapa zainicjalizowana z projektem:', project.nazwa);
+            } catch (error) {
+                console.error('❌ Błąd ładowania metadanych projektu:', error);
+            }
+        });
+    </script>
     <!-- Główny skrypt aplikacji -->
     <script src="map-script.js"></script>
 </body>

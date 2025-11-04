@@ -61,15 +61,15 @@
                 <div class="title-wrapper">
                     <h1 class="main-title">
                         Interaktywna Mapa Katastralna
-                        <span class="subtitle">Gminy Czarna z XIX wieku</span>
+                        <span class="subtitle">Gminy <span class="project-full-name">Czarna</span> z <span class="project-context">XIX wieku</span></span>
                     </h1>
                 </div>
-                
+
                 <!-- Opis projektu -->
                 <div class="description-wrapper">
                     <p class="main-description">
                         Odkryj historię zapisaną w ziemi. Przeglądaj historyczne działki katastralne,
-                        poznaj dawnych właścicieli i zgłębiaj genealogiczne powiązania mieszkańców z 1882 roku.
+                        poznaj dawnych właścicieli i zgłębiaj genealogiczne powiązania mieszkańców z <span class="project-year">1882</span> roku.
                     </p>
                 </div>
                 
@@ -253,6 +253,10 @@
 
                 document.querySelectorAll('.project-context').forEach(el => {
                     el.textContent = project.kontekst_czasowy || 'XIX wiek';
+                });
+
+                document.querySelectorAll('.project-year').forEach(el => {
+                    el.textContent = project.rok_zrodlowy || '1882';
                 });
 
                 console.log('✅ Strona zainicjalizowana z projektem:', project.nazwa);
