@@ -65,8 +65,120 @@ def clear_genealogy_cache():
 # KONFIGURACJA ŚRODOWISKA
 # =============================================================================
 
-# Wczytanie zmiennych środowiskowych z pliku .env
-load_dotenv()
+def load_project_env():
+    """
+    Inteligentne ładowanie .env z katalogu projektu.
+
+    Proces:
+    1. Próba załadowania domyślnego .env (backend/.env lub główny katalog)
+    2. Połączenie z bazą master i sprawdzenie aktywnego projektu
+    3. Załadowanie .env z katalogu projektu (projects/{short_code}/.env)
+    4. Jeśli coś pójdzie nie tak, kontynuuj z domyślnymi wartościami
+    """
+    print("=" * 80)
+    print("🔧 ŁADOWANIE KONFIGURACJI PROJEKTU")
+    print("=" * 80)
+
+    # Krok 1: Załaduj domyślny .env (jeśli istnieje)
+    backend_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(backend_dir)
+
+    # Próbuj załadować .env z różnych lokalizacji
+    default_env_paths = [
+        os.path.join(backend_dir, '.env'),
+        os.path.join(project_root, '.env')
+    ]
+
+    default_env_loaded = False
+    for env_path in default_env_paths:
+        if os.path.exists(env_path):
+            load_dotenv(env_path)
+            print(f"✅ Załadowano domyślny .env z: {env_path}")
+            default_env_loaded = True
+            break
+
+    if not default_env_loaded:
+        print("⚠️ Brak domyślnego .env - używam zmiennych systemowych")
+
+    # Krok 2: Spróbuj połączyć się z bazą i znaleźć aktywny projekt
+    db_config = {
+        "host": os.getenv("DB_HOST", "localhost"),
+        "dbname": os.getenv("DB_NAME", "mapa_czarna_db"),
+        "user": os.getenv("DB_USER", "postgres"),
+        "password": os.getenv("DB_PASSWORD", "1234"),
+        "port": os.getenv("DB_PORT", "5432")
+    }
+
+    print(f"\n📊 Konfiguracja bazy master:")
+    print(f"   Host: {db_config['host']}:{db_config['port']}")
+    print(f"   Database: {db_config['dbname']}")
+    print(f"   User: {db_config['user']}")
+
+    try:
+        # Próba połączenia z bazą master
+        print(f"\n🔌 Próba połączenia z bazą master...")
+        conn = psycopg2.connect(**db_config)
+        conn.set_client_encoding('UTF8')
+
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                # Sprawdź czy istnieje tabela projects
+                cur.execute("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables
+                        WHERE table_name = 'projects'
+                    );
+                """)
+
+                if cur.fetchone()['exists']:
+                    # Pobierz aktywny projekt
+                    cur.execute("""
+                        SELECT short_code, nazwa FROM projects
+                        WHERE is_active = true
+                        LIMIT 1;
+                    """)
+                    active_project = cur.fetchone()
+
+                    if active_project:
+                        short_code = active_project['short_code']
+                        project_name = active_project['nazwa']
+
+                        print(f"✅ Znaleziono aktywny projekt: {project_name} ({short_code})")
+
+                        # Krok 3: Załaduj .env z katalogu projektu
+                        project_env_path = os.path.join(project_root, 'projects', short_code, '.env')
+
+                        if os.path.exists(project_env_path):
+                            # Przeładuj zmienne z .env projektu
+                            load_dotenv(project_env_path, override=True)
+                            print(f"✅ Załadowano .env projektu z: {project_env_path}")
+                        else:
+                            print(f"⚠️ Brak pliku .env dla projektu: {project_env_path}")
+                            print(f"   Kontynuuję z domyślną konfiguracją")
+                    else:
+                        print("⚠️ Brak aktywnego projektu w bazie")
+                else:
+                    print("⚠️ Tabela 'projects' nie istnieje - system nie został zainicjowany")
+        finally:
+            conn.close()
+
+        print("✅ Połączenie z bazą OK")
+
+    except psycopg2.OperationalError as e:
+        print(f"\n❌ BŁĄD POŁĄCZENIA Z BAZĄ DANYCH!")
+        print(f"   Szczegóły: {e}")
+        print(f"   ⚠️ Aplikacja będzie działać w trybie awaryjnym")
+        print(f"   ⚠️ Sprawdź plik .env i upewnij się że PostgreSQL działa")
+        print(f"\n💡 Możesz teraz sprawdzić/poprawić konfigurację w .env")
+    except Exception as e:
+        print(f"\n⚠️ Nieoczekiwany błąd: {e}")
+        print(f"   Kontynuuję z domyślną konfiguracją")
+
+    print("=" * 80)
+    print()
+
+# Załaduj konfigurację projektu
+load_project_env()
 
 def get_env_variable(var_name, default_value=None):
     """Pobiera zmienną środowiskową z opcjonalną wartością domyślną."""
@@ -129,9 +241,17 @@ class ProjectManager:
 
     def get_master_connection(self):
         """Tworzy połączenie z bazą master."""
-        conn = psycopg2.connect(**self.master_db_config)
-        conn.set_client_encoding('UTF8')
-        return conn
+        try:
+            conn = psycopg2.connect(**self.master_db_config)
+            conn.set_client_encoding('UTF8')
+            return conn
+        except psycopg2.OperationalError as e:
+            print(f"❌ Błąd połączenia z bazą master: {e}")
+            print(f"⚠️ Sprawdź konfigurację w pliku .env projektu")
+            raise
+        except Exception as e:
+            print(f"❌ Nieoczekiwany błąd przy połączeniu: {e}")
+            raise
 
     def get_project_connection(self, project_id: Optional[int] = None):
         """
@@ -190,6 +310,7 @@ class ProjectManager:
                     """)
                     if not cur.fetchone()['exists']:
                         print("⚠️ Tabela 'projects' nie istnieje. System projektów nie został zainicjowany.")
+                        print("💡 Uruchom launcher aby zainicjować system projektów")
                         return
 
                     # Pobierz aktywny projekt
@@ -208,8 +329,13 @@ class ProjectManager:
                         print("⚠️ Brak aktywnego projektu. Użyj switch_project() aby wybrać projekt.")
             finally:
                 conn.close()
+        except psycopg2.OperationalError as e:
+            print(f"❌ Błąd połączenia przy ładowaniu projektu: {e}")
+            print(f"⚠️ Sprawdź plik .env i konfigurację PostgreSQL")
+            print(f"⚠️ Aplikacja będzie działać w trybie awaryjnym (bez dostępu do bazy)")
         except Exception as e:
             print(f"❌ Błąd przy ładowaniu aktywnego projektu: {e}")
+            print(f"⚠️ Kontynuuję bez aktywnego projektu")
 
     def get_all_projects(self, force_refresh: bool = False) -> List[Dict]:
         """Pobiera listę wszystkich projektów."""
@@ -436,16 +562,27 @@ def get_db_connection():
     Tworzy i zwraca połączenie z bazą danych PostgreSQL.
     Jeśli system projektów jest aktywny, zwraca połączenie do bazy aktywnego projektu.
     W przeciwnym razie zwraca połączenie do bazy master (tryb legacy).
-    """
-    if project_manager and project_manager.active_project_id:
-        # Tryb multi-projektowy - zwróć połączenie do bazy aktywnego projektu
-        conn = project_manager.get_project_connection()
-    else:
-        # Tryb legacy - zwróć połączenie do bazy master
-        conn = psycopg2.connect(**DB_CONFIG)
 
-    conn.set_client_encoding('UTF8')  # Obsługa polskich znaków
-    return conn
+    Raises:
+        psycopg2.OperationalError: Gdy nie można połączyć się z bazą danych
+    """
+    try:
+        if project_manager and project_manager.active_project_id:
+            # Tryb multi-projektowy - zwróć połączenie do bazy aktywnego projektu
+            conn = project_manager.get_project_connection()
+        else:
+            # Tryb legacy - zwróć połączenie do bazy master
+            conn = psycopg2.connect(**DB_CONFIG)
+
+        conn.set_client_encoding('UTF8')  # Obsługa polskich znaków
+        return conn
+    except psycopg2.OperationalError as e:
+        print(f"❌ Błąd połączenia z bazą danych: {e}")
+        print(f"⚠️ Sprawdź plik .env projektu i upewnij się że PostgreSQL działa")
+        raise
+    except Exception as e:
+        print(f"❌ Nieoczekiwany błąd przy połączeniu z bazą: {e}")
+        raise
 
 # Globalne przechowywanie konfiguracji
 map_config = {}
