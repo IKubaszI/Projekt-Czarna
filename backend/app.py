@@ -145,8 +145,9 @@ def load_project_env():
 
                         print(f"✅ Znaleziono aktywny projekt: {project_name} ({short_code})")
 
-                        # Krok 3: Załaduj .env z katalogu projektu
-                        project_env_path = os.path.join(project_root, 'projects', short_code, '.env')
+                        # Krok 3: Załaduj .env z katalogu backup projektu
+                        # Używamy nazwy projektu (np. "Czarna") zamiast short_code
+                        project_env_path = os.path.join(project_root, 'backup', project_name, '.env')
 
                         if os.path.exists(project_env_path):
                             # Przeładuj zmienne z .env projektu

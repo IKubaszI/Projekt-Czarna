@@ -7,7 +7,7 @@
 - Kolejność ładowania:
   1. Domyślny `.env` (backend/.env lub główny katalog)
   2. Sprawdzenie aktywnego projektu w bazie
-  3. Załadowanie `.env` projektu z `projects/{short_code}/.env`
+  3. Załadowanie `.env` projektu z `backup/{Nazwa}/.env`
 
 ### 2. Obsługa błędów
 - Aplikacja **NIE crashuje** gdy dane w .env są błędne
@@ -17,11 +17,11 @@
 ## Struktura Plików .env
 
 ```
-projects/
-├── czarna/
+backup/
+├── Czarna/
 │   ├── .env               ← Konfiguracja dla Czarnej
 │   └── .env.test-bad      ← Przykład z błędnymi danymi
-└── borowa/
+└── Borowa/
     └── .env               ← Konfiguracja dla Borowej
 ```
 
@@ -29,7 +29,7 @@ projects/
 
 ### 1. Czarna (domyślny projekt)
 
-Plik: `projects/czarna/.env`
+Plik: `backup/Czarna/.env`
 ```env
 DB_HOST=localhost
 DB_NAME=mapa_czarna_db
@@ -59,7 +59,7 @@ python app.py
 
 🔌 Próba połączenia z bazą master...
 ✅ Znaleziono aktywny projekt: Czarna (czarna)
-✅ Załadowano .env projektu z: /home/user/Projekt-Czarna/projects/czarna/.env
+✅ Załadowano .env projektu z: /home/user/Projekt-Czarna/backup/Czarna/.env
 ✅ Połączenie z bazą OK
 ================================================================================
 ```
@@ -70,7 +70,7 @@ python app.py
 
 ```bash
 # Skopiuj plik testowy jako aktywny .env
-cp projects/czarna/.env.test-bad projects/czarna/.env
+cp backup/Czarna/.env.test-bad backup/Czarna/.env
 
 # Uruchom serwer
 cd backend
@@ -112,14 +112,14 @@ python app.py
 
 ### 2. Test z różnymi bazami dla Czarnej i Borowej
 
-**Czarna:** `projects/czarna/.env`
+**Czarna:** `backup/Czarna/.env`
 ```env
 DB_NAME=mapa_czarna_db
 DB_USER=postgres
 DB_PASSWORD=1234
 ```
 
-**Borowa:** `projects/borowa/.env`
+**Borowa:** `backup/Borowa/.env`
 ```env
 DB_NAME=borowa_db
 DB_USER=postgres
@@ -133,7 +133,7 @@ UPDATE projects SET is_active = false;
 UPDATE projects SET is_active = true WHERE short_code = 'czarna';
 ```
 
-**Zrestartuj serwer** - automatycznie załaduje `.env` z `projects/czarna/.env`
+**Zrestartuj serwer** - automatycznie załaduje `.env` z `backup/Czarna/.env`
 
 ```sql
 -- Przełącz na Borową
@@ -141,7 +141,7 @@ UPDATE projects SET is_active = false;
 UPDATE projects SET is_active = true WHERE short_code = 'borowa';
 ```
 
-**Zrestartuj serwer** - automatycznie załaduje `.env` z `projects/borowa/.env`
+**Zrestartuj serwer** - automatycznie załaduje `.env` z `backup/Borowa/.env`
 
 ## Sprawdzanie Co Zostało Załadowane
 
@@ -188,7 +188,7 @@ python launcher_app.py
 ## Podsumowanie
 
 ✅ **System działa!**
-- Każdy projekt ma swój `.env` w `projects/{short_code}/.env`
+- Każdy projekt ma swój `.env` w `backup/{Nazwa}/.env`
 - Automatyczne ładowanie na podstawie aktywnego projektu
 - Obsługa błędów - aplikacja nie crashuje
 - Łatwe przełączanie między projektami (zmiana `is_active` w bazie + restart)
