@@ -198,15 +198,38 @@ ICONS_SCAN_FOLDERS = [
 # =============================================================================
 
 def read_env_config(key_prefix=None):
-    """Odczytuje konfigurację z pliku .env."""
+    """Odczytuje konfigurację z pliku .env z obsługą różnych kodowań."""
     env_path = os.path.join(BACKEND_DIR, ".env")
     config = {}
 
     if not os.path.exists(env_path):
         return config
 
+    # Lista kodowań do sprawdzenia w kolejności
+    encodings_to_try = ['utf-8', 'cp1250', 'windows-1250', 'latin1', 'iso-8859-2']
+
+    for encoding in encodings_to_try:
+        try:
+            with open(env_path, 'r', encoding=encoding, errors='strict') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        key, value = key.strip(), value.strip()
+                        if not key_prefix or key.startswith(key_prefix):
+                            config[key] = value
+            # Jeśli udało się odczytać, przerwij pętlę
+            return config
+        except (UnicodeDecodeError, UnicodeError):
+            # Spróbuj następnego kodowania
+            continue
+        except Exception as e:
+            print(f"Błąd odczytu .env z kodowaniem {encoding}: {e}")
+            continue
+
+    # Jeśli żadne kodowanie nie zadziałało, spróbuj z ignore
     try:
-        with open(env_path, 'r', encoding='utf-8') as f:
+        with open(env_path, 'r', encoding='utf-8', errors='ignore') as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith('#') and '=' in line:
@@ -215,30 +238,14 @@ def read_env_config(key_prefix=None):
                     if not key_prefix or key.startswith(key_prefix):
                         config[key] = value
     except Exception as e:
-        print(f"Błąd odczytu .env: {e}")
+        print(f"Ostateczny błąd odczytu .env: {e}")
 
     return config
 
 def get_db_config_from_env():
-    """Odczytuje konfigurację bazy danych z pliku .env z obsługą kodowania."""
+    """Odczytuje konfigurację bazy danych z pliku .env."""
     env_config = read_env_config('DB_')
-    
-    # Konwertuj wszystkie wartości konfiguracyjne na UTF-8
-    for key, value in env_config.items():
-        if isinstance(value, str):
-            try:
-                # Sprawdź czy wartość zawiera bajty spoza ASCII
-                if any(ord(c) > 127 for c in value):
-                    # Próba konwersji z windows-1250 do utf-8
-                    env_config[key] = value.encode('latin1').decode('utf-8')
-            except UnicodeDecodeError:
-                try:
-                    # Jeśli nie powiodło się powyższe, spróbuj bezpośrednio konwertować z cp1250
-                    env_config[key] = value.encode('iso-8859-2').decode('utf-8')
-                except:
-                    # Ostatnia szansa - usuń znaki spoza ASCII
-                    env_config[key] = ''.join(c for c in value if ord(c) < 128)
-    
+
     return {
         "host": env_config.get('DB_HOST', 'localhost'),
         "dbname": env_config.get('DB_NAME', 'mapa_czarna_db'),
@@ -521,20 +528,11 @@ def _find_existing_favicon_in_site():
     return None
 
 def _save_favicon_to_database(filename):
-    """Zapisuje ścieżkę favicon do bazy danych z obsługą kodowania."""
+    """Zapisuje ścieżkę favicon do bazy danych."""
+    conn = None
     try:
         db_cfg = get_db_config_from_env()
-        
-        # Konwertuj wszystkie wartości konfiguracyjne na UTF-8
-        for key, value in db_cfg.items():
-            if isinstance(value, str):
-                # Spróbuj zdekodować z windows-1250 jeśli zawiera nie-ASCII znaki
-                try:
-                    db_cfg[key] = value.encode('latin1').decode('utf-8')
-                except:
-                    # Jeśli nie działa, usuń nie-ASCII znaki
-                    db_cfg[key] = ''.join(c for c in value if ord(c) < 128)
-        
+
         # Ustaw połączenie z jawnym kodowaniem
         conn = psycopg2.connect(**db_cfg)
         conn.set_client_encoding('UTF8')  # Wymuś kodowanie UTF-8
@@ -550,7 +548,7 @@ def _save_favicon_to_database(filename):
             conn.commit()
             print(f"✅ Zapisano favicon do bazy danych: {rel_path}")
     
-    except psycopg2.Error as e:
+    except (psycopg2.Error, psycopg2.OperationalError) as e:
         print(f"ℹ️ Nie można zapisać favicon do bazy danych: {e}")
         # Spróbuj połączyć się z podstawową konfiguracją bez czytania z .env
         try:
@@ -573,7 +571,9 @@ def _save_favicon_to_database(filename):
                 conn.commit()
                 print(f"✅ Zapisano favicon do bazy danych z konfiguracją domyślną: {rel_path}")
         except Exception as e2:
-            print(f"❌ Ostateczny błąd przy zapisywaniu favicon: {e2}")
+            print(f"⚠️ Nie można zapisać favicon do bazy: {e2}")
+    except UnicodeDecodeError as e:
+        print(f"❌ Błąd kodowania przy zapisywaniu favicon: {e}")
     except Exception as e:
         print(f"❌ Nieoczekiwany błąd przy zapisywaniu favicon: {e}")
     finally:
