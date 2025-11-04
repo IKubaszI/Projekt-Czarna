@@ -41,8 +41,7 @@ def get_active_project_from_db():
     try:
         db_config = get_db_config_from_env()
         conn = psycopg2.connect(**db_config)
-        conn.set_client_encoding('UTF8')
-
+        conn.set_client_encoding('UTF8')  # Ustaw kodowanie UTF-8 dla połączenia
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 SELECT * FROM projects
@@ -50,7 +49,6 @@ def get_active_project_from_db():
                 LIMIT 1;
             """)
             project = cur.fetchone()
-
         conn.close()
         return dict(project) if project else None
     except Exception as e:
@@ -82,12 +80,10 @@ def switch_project_in_db(project_id):
     try:
         db_config = get_db_config_from_env()
         conn = psycopg2.connect(**db_config)
-        conn.set_client_encoding('UTF8')
-
+        conn.set_client_encoding('UTF8')  # Ustaw kodowanie UTF-8 dla połączenia
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             # Dezaktywuj wszystkie
             cur.execute("UPDATE projects SET is_active = false;")
-
             # Aktywuj wybrany
             cur.execute("""
                 UPDATE projects
@@ -95,11 +91,12 @@ def switch_project_in_db(project_id):
                 WHERE id = %s
                 RETURNING *;
             """, (project_id,))
-
             project = cur.fetchone()
             conn.commit()
-
         conn.close()
+        # Załaduj .env projektu
+        if project:
+            load_project_env(project['nazwa'])
         return dict(project) if project else None
     except Exception as e:
         print(f"❌ Błąd przełączania projektu: {e}")
@@ -223,8 +220,25 @@ def read_env_config(key_prefix=None):
     return config
 
 def get_db_config_from_env():
-    """Odczytuje konfigurację bazy danych z pliku .env."""
+    """Odczytuje konfigurację bazy danych z pliku .env z obsługą kodowania."""
     env_config = read_env_config('DB_')
+    
+    # Konwertuj wszystkie wartości konfiguracyjne na UTF-8
+    for key, value in env_config.items():
+        if isinstance(value, str):
+            try:
+                # Sprawdź czy wartość zawiera bajty spoza ASCII
+                if any(ord(c) > 127 for c in value):
+                    # Próba konwersji z windows-1250 do utf-8
+                    env_config[key] = value.encode('latin1').decode('utf-8')
+            except UnicodeDecodeError:
+                try:
+                    # Jeśli nie powiodło się powyższe, spróbuj bezpośrednio konwertować z cp1250
+                    env_config[key] = value.encode('iso-8859-2').decode('utf-8')
+                except:
+                    # Ostatnia szansa - usuń znaki spoza ASCII
+                    env_config[key] = ''.join(c for c in value if ord(c) < 128)
+    
     return {
         "host": env_config.get('DB_HOST', 'localhost'),
         "dbname": env_config.get('DB_NAME', 'mapa_czarna_db'),
@@ -241,6 +255,106 @@ def get_flask_config():
         'port': env_config.get('FLASK_PORT', '5000')
     }
 
+
+
+def get_project_env_path(project_name):
+    """
+    Zwraca ścieżkę do pliku .env dla danego projektu.
+    
+    Args:
+        project_name: Nazwa miejscowości
+        
+    Returns:
+        Ścieżka do pliku .env projektu
+    """
+    project_folder = os.path.join(BACKUP_FOLDER, project_name)
+    return os.path.join(project_folder, ".env")
+
+def load_project_env(project_name):
+    """
+    Ładuje plik .env z folderu projektu do backend/.env
+    
+    Args:
+        project_name: Nazwa miejscowości
+        
+    Returns:
+        True jeśli udało się załadować, False w przeciwnym razie
+    """
+    try:
+        project_env_path = get_project_env_path(project_name)
+        backend_env_path = os.path.join(BACKEND_DIR, ".env")
+        
+        if os.path.exists(project_env_path):
+            # Kopiuj .env z folderu projektu do backend
+            shutil.copy2(project_env_path, backend_env_path)
+            print(f"✅ Załadowano .env z projektu: {project_name}")
+            return True
+        else:
+            print(f"⚠️ Brak pliku .env dla projektu: {project_name}")
+            # Utwórz domyślny .env jeśli nie istnieje
+            check_env_configuration()
+            return False
+            
+    except Exception as e:
+        print(f"❌ Błąd ładowania .env projektu: {e}")
+        return False
+
+def save_project_env(project_name):
+    """
+    Zapisuje bieżący plik .env z backend do folderu projektu
+    
+    Args:
+        project_name: Nazwa miejscowości
+        
+    Returns:
+        True jeśli udało się zapisać, False w przeciwnym razie
+    """
+    try:
+        project_folder = os.path.join(BACKUP_FOLDER, project_name)
+        project_env_path = get_project_env_path(project_name)
+        backend_env_path = os.path.join(BACKEND_DIR, ".env")
+        
+        # Upewnij się że folder projektu istnieje
+        os.makedirs(project_folder, exist_ok=True)
+        
+        if os.path.exists(backend_env_path):
+            # Kopiuj .env z backend do folderu projektu
+            shutil.copy2(backend_env_path, project_env_path)
+            print(f"✅ Zapisano .env do projektu: {project_name}")
+            return True
+        else:
+            print(f"⚠️ Brak pliku .env w backend")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Błąd zapisywania .env projektu: {e}")
+        return False
+
+def create_project_folder(project_name):
+    """
+    Tworzy folder dla nowego projektu i kopiuje do niego .env
+    
+    Args:
+        project_name: Nazwa miejscowości
+        
+    Returns:
+        True jeśli udało się utworzyć, False w przeciwnym razie
+    """
+    try:
+        project_folder = os.path.join(BACKUP_FOLDER, project_name)
+        
+        # Utwórz folder projektu
+        os.makedirs(project_folder, exist_ok=True)
+        print(f"✅ Utworzono folder projektu: {project_name}")
+        
+        # Skopiuj .env z backend do folderu projektu
+        save_project_env(project_name)
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Błąd tworzenia folderu projektu: {e}")
+        return False
 def get_data_files_for_project(project_name=None):
     """
     Zwraca ścieżki do plików danych dla danego projektu.
@@ -407,10 +521,25 @@ def _find_existing_favicon_in_site():
     return None
 
 def _save_favicon_to_database(filename):
-    """Zapisuje ścieżkę favicon do bazy danych."""
+    """Zapisuje ścieżkę favicon do bazy danych z obsługą kodowania."""
     try:
         db_cfg = get_db_config_from_env()
-        with psycopg2.connect(**db_cfg) as conn, conn.cursor() as cur:
+        
+        # Konwertuj wszystkie wartości konfiguracyjne na UTF-8
+        for key, value in db_cfg.items():
+            if isinstance(value, str):
+                # Spróbuj zdekodować z windows-1250 jeśli zawiera nie-ASCII znaki
+                try:
+                    db_cfg[key] = value.encode('latin1').decode('utf-8')
+                except:
+                    # Jeśli nie działa, usuń nie-ASCII znaki
+                    db_cfg[key] = ''.join(c for c in value if ord(c) < 128)
+        
+        # Ustaw połączenie z jawnym kodowaniem
+        conn = psycopg2.connect(**db_cfg)
+        conn.set_client_encoding('UTF8')  # Wymuś kodowanie UTF-8
+        
+        with conn.cursor() as cur:
             rel_path = os.path.join("site", filename).replace("\\", "/")
             cur.execute(
                 "INSERT INTO konfiguracja_systemu (klucz, wartosc, opis) "
@@ -420,10 +549,36 @@ def _save_favicon_to_database(filename):
             )
             conn.commit()
             print(f"✅ Zapisano favicon do bazy danych: {rel_path}")
+    
     except psycopg2.Error as e:
-        # Baza może jeszcze nie istnieć – to nie błąd krytyczny przy pierwszym uruchomieniu
-        print(f"ℹ️ Nie można zapisać favicon do bazy (baza może nie istnieć): {e}")
-        pass
+        print(f"ℹ️ Nie można zapisać favicon do bazy danych: {e}")
+        # Spróbuj połączyć się z podstawową konfiguracją bez czytania z .env
+        try:
+            conn = psycopg2.connect(
+                host="localhost",
+                dbname="mapa_czarna_db",
+                user="postgres",
+                password="1234",
+                port="5432"
+            )
+            conn.set_client_encoding('UTF8')
+            with conn.cursor() as cur:
+                rel_path = os.path.join("site", filename).replace("\\", "/")
+                cur.execute(
+                    "INSERT INTO konfiguracja_systemu (klucz, wartosc, opis) "
+                    "VALUES ('site_favicon', %s, %s) "
+                    "ON CONFLICT (klucz) DO UPDATE SET wartosc = EXCLUDED.wartosc;",
+                    (json.dumps({"path": rel_path}), "Ścieżka do ikony witryny (favicon)")
+                )
+                conn.commit()
+                print(f"✅ Zapisano favicon do bazy danych z konfiguracją domyślną: {rel_path}")
+        except Exception as e2:
+            print(f"❌ Ostateczny błąd przy zapisywaniu favicon: {e2}")
+    except Exception as e:
+        print(f"❌ Nieoczekiwany błąd przy zapisywaniu favicon: {e}")
+    finally:
+        if 'conn' in locals() and conn:
+            conn.close()
 
 def check_backup_folder_files():
     """Sprawdza folder backup i tworzy brakujące pliki JSON dla aktywnego projektu."""
@@ -1310,9 +1465,11 @@ if __name__ == '__main__':
                 )
 
                 if restart:
-                    self.log("🔄 Restartowanie serwera backend...\n")
-                    self.stop_managed_process("backend")
-                    self.after(1500, self.toggle_server)
+                    self.parent_app.log("🔄 Restartowanie serwera backend po zmianie miejscowości...\n")
+                    self.parent_app.stop_managed_process("backend")
+                    # Sprawdź czy serwer był w trybie sieciowym
+                    was_network = self.parent_app.managed_processes.get("backend", {}).get("network_mode", False)
+                    self.parent_app.after(1500, lambda: self.parent_app.toggle_server(network_mode=was_network))
         else:
             messagebox.showerror("Błąd", "Nie można przełączyć projektu")
             # Przywróć poprzedni wybór
@@ -2371,15 +2528,43 @@ class ProjectManagerDialog(tk.Toplevel):
         self.parent.refresh_projects()
 
 
-def apply_page_template(typ_strony):
+
+def substitute_placeholders_in_page(content, project_data):
+    """
+    Podstawia placeholdery w treści strony.
+    Args:
+        content: Zawartość HTML jako string
+        project_data: Słownik z danymi projektu
+    Returns:
+        String z podstawionymi wartościami
+    """
+    placeholders = {
+        '{MIEJSCOWOSC}': project_data.get('nazwa', 'Miejscowość'),
+        '{PELNA_NAZWA}': project_data.get('pelna_nazwa', 'Gmina'),
+        '{OKRES}': project_data.get('okres', 'XIX'), 
+        '{ROK_ZRODLOWY}': str(project_data.get('rok_zrodlowy', '1882')),
+        '{OKRES_DANYCH}': project_data.get('okres_danych', '1850-1900'),
+        '{REGION}': project_data.get('region', 'Powiat'),
+        '{WOJEWODZTWO}': project_data.get('wojewodztwo', 'Województwo')
+    }
+    result = content
+    for placeholder, value in placeholders.items():
+        result = result.replace(placeholder, str(value))
+    return result
+
+
+def apply_page_template(typ_strony, project_data=None):
     """
     Kopiuje odpowiedni szablon strony do strona_glowna/index.html.
+    Jeśli typ to "standardowa" i podano project_data, podstawia wartości.
 
     Args:
         typ_strony: "projekt_inzynierski" lub "standardowa"
+        project_data: Słownik z danymi projektu (opcjonalnie, dla standardowej strony)
     """
     try:
-        template_path = os.path.join(BASE_DIR, "strony", typ_strony, "index.html")
+        # Nowa ścieżka do szablonów
+        template_path = os.path.join(BASE_DIR, "strona_glowna", "Typy", typ_strony, "index.html")
         target_path = os.path.join(BASE_DIR, "strona_glowna", "index.html")
 
         if not os.path.exists(template_path):
@@ -2391,14 +2576,70 @@ def apply_page_template(typ_strony):
         if os.path.exists(target_path):
             shutil.copy2(target_path, backup_path)
 
-        # Skopiuj szablon
-        shutil.copy2(template_path, target_path)
+        # Wczytaj szablon
+        with open(template_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Jeśli to standardowa strona i mamy dane projektu, podstaw placeholdery
+        if typ_strony == "standardowa" and project_data:
+            content = substitute_placeholders_in_page(content, project_data)
+        
+        # Zapisz do docelowego pliku
+        with open(target_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+            
         print(f"✅ Zastosowano szablon: {typ_strony}")
         return True
 
     except Exception as e:
         print(f"❌ Błąd kopiowania szablonu: {e}")
         return False
+
+
+def rename_project_folder(old_name, new_name):
+    """
+    Zmienia nazwę folderu projektu w katalogu backup.
+    
+    Args:
+        old_name: Stara nazwa miejscowości
+        new_name: Nowa nazwa miejscowości
+        
+    Returns:
+        True jeśli udało się zmienić nazwę, False w przeciwnym razie
+    """
+    try:
+        old_path = os.path.join(BACKUP_FOLDER, old_name)
+        new_path = os.path.join(BACKUP_FOLDER, new_name)
+        
+        if os.path.exists(old_path):
+            if os.path.exists(new_path):
+                print(f"⚠️ Folder {new_name} już istnieje, scalanie...")
+                # Przenieś zawartość starego folderu do nowego
+                for item in os.listdir(old_path):
+                    src = os.path.join(old_path, item)
+                    dst = os.path.join(new_path, item)
+                    if os.path.isdir(src):
+                        if os.path.exists(dst):
+                            shutil.rmtree(dst)
+                        shutil.copytree(src, dst)
+                    else:
+                        shutil.copy2(src, dst)
+                # Usuń stary folder
+                shutil.rmtree(old_path)
+            else:
+                # Prosta zmiana nazwy
+                os.rename(old_path, new_path)
+            print(f"✅ Zmieniono nazwę folderu: {old_name} → {new_name}")
+            return True
+        else:
+            print(f"ℹ️ Folder {old_name} nie istnieje, zostanie utworzony {new_name}")
+            os.makedirs(new_path, exist_ok=True)
+            return True
+            
+    except Exception as e:
+        print(f"❌ Błąd zmiany nazwy folderu: {e}")
+        return False
+
 
 
 class ProjectFormDialog(tk.Toplevel):
@@ -2513,6 +2754,9 @@ class ProjectFormDialog(tk.Toplevel):
             messagebox.showerror("Błąd", "Wypełnij przynajmniej: Krótki Kod i Nazwa.")
             return
 
+        # Zapamiętaj starą nazwę (tylko przy edycji)
+        old_nazwa = self.project.get('nazwa') if self.mode == "edit" else None
+
         try:
             db_config = get_db_config_from_env()
             conn = psycopg2.connect(**db_config)
@@ -2585,14 +2829,35 @@ class ProjectFormDialog(tk.Toplevel):
 
                 conn.commit()
 
+            # Utwórz folder projektu i skopiuj .env (tylko przy dodawaniu)
+            if self.mode == 'add':
+                create_project_folder(data['nazwa'])
+
             conn.close()
+
+            # Zmień nazwę folderu backup jeśli zmieniono nazwę miejscowości
+            if self.mode == "edit" and old_nazwa and old_nazwa != data['nazwa']:
+                rename_project_folder(old_nazwa, data['nazwa'])
+                print(f"📁 Zmieniono folder projektu: {old_nazwa} → {data['nazwa']}")
+            
+            # Zapisz .env przy edycji (żeby zachować aktualne ustawienia)
+            if self.mode == "edit":
+                save_project_env(data['nazwa'])
 
             # Zastosuj odpowiedni szablon strony (tylko jeśli mamy nowe kolumny)
             if has_new_columns:
-                if apply_page_template(data['typ_strony']):
-                    msg = f"Miejscowość została zapisana.\n\nZastosowano szablon strony: {data['typ_strony']}"
+                # Dla standardowej strony podstawiamy dane
+                if data['typ_strony'] == 'standardowa':
+                    if apply_page_template(data['typ_strony'], data):
+                        msg = f"Miejscowość została zapisana.\n\nZastosowano szablon strony: {data['typ_strony']}\nPodstawiono dane miejscowości."
+                    else:
+                        msg = "Miejscowość została zapisana.\n\n⚠️ Nie udało się zmienić szablonu strony."
                 else:
-                    msg = "Miejscowość została zapisana.\n\n⚠️ Nie udało się zmienić szablonu strony."
+                    # Dla projektu inżynierskiego bez podstawiania
+                    if apply_page_template(data['typ_strony'], None):
+                        msg = f"Miejscowość została zapisana.\n\nZastosowano szablon strony: {data['typ_strony']}"
+                    else:
+                        msg = "Miejscowość została zapisana.\n\n⚠️ Nie udało się zmienić szablonu strony."
             else:
                 msg = "Miejscowość została zapisana.\n\n⚠️ Uruchom migrację SQL aby używać szablonów stron."
 
@@ -2603,6 +2868,7 @@ class ProjectFormDialog(tk.Toplevel):
 
         except Exception as e:
             messagebox.showerror("Błąd", f"Nie można zapisać miejscowości:\n{e}")
+
 
 
 class BackupManager(tk.Toplevel):
