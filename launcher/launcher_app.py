@@ -2247,7 +2247,7 @@ class ProjectManagerDialog(tk.Toplevel):
         self.tree.column("ID", width=50)
         self.tree.column("Nazwa", width=120)
         self.tree.column("Pełna Nazwa", width=200)
-        self.tree.column("Powiat", text="Powiat", width=150)
+        self.tree.column("Powiat", width=150)
         self.tree.column("Region", width=150)
         self.tree.column("Aktywna", width=80)
 
