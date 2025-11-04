@@ -431,11 +431,11 @@
                     el.textContent = project.nazwa || 'Czarna';
                 });
 
-                // Aktualizuj kontekst czasowy (skrócony)
+                // Aktualizuj okres (skrócony)
                 document.querySelectorAll('.project-context-short').forEach(el => {
-                    const context = project.kontekst_czasowy || 'XIX wiek';
-                    // Skróć np. "XIX wiek" -> "XIX w."
-                    el.textContent = context.replace(' wiek', ' w.');
+                    const okres = project.okres || 'XIX';
+                    // Dodaj "w." np. "XIX" -> "XIX w."
+                    el.textContent = `${okres} w.`;
                 });
 
                 console.log('✅ Mapa zainicjalizowana z projektem:', project.nazwa);

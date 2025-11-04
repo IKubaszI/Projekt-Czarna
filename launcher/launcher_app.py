@@ -2371,6 +2371,36 @@ class ProjectManagerDialog(tk.Toplevel):
         self.parent.refresh_projects()
 
 
+def apply_page_template(typ_strony):
+    """
+    Kopiuje odpowiedni szablon strony do strona_glowna/index.html.
+
+    Args:
+        typ_strony: "projekt_inzynierski" lub "standardowa"
+    """
+    try:
+        template_path = os.path.join(BASE_DIR, "strony", typ_strony, "index.html")
+        target_path = os.path.join(BASE_DIR, "strona_glowna", "index.html")
+
+        if not os.path.exists(template_path):
+            print(f"⚠️ Szablon nie istnieje: {template_path}")
+            return False
+
+        # Utwórz backup obecnego pliku
+        backup_path = target_path + ".backup"
+        if os.path.exists(target_path):
+            shutil.copy2(target_path, backup_path)
+
+        # Skopiuj szablon
+        shutil.copy2(template_path, target_path)
+        print(f"✅ Zastosowano szablon: {typ_strony}")
+        return True
+
+    except Exception as e:
+        print(f"❌ Błąd kopiowania szablonu: {e}")
+        return False
+
+
 class ProjectFormDialog(tk.Toplevel):
     """Okno formularza dodawania/edycji projektu."""
 
@@ -2520,7 +2550,13 @@ class ProjectFormDialog(tk.Toplevel):
 
             conn.close()
 
-            messagebox.showinfo("Sukces", "Miejscowość została zapisana.")
+            # Zastosuj odpowiedni szablon strony
+            if apply_page_template(data['typ_strony']):
+                msg = f"Miejscowość została zapisana.\n\nZastosowano szablon strony: {data['typ_strony']}"
+            else:
+                msg = "Miejscowość została zapisana.\n\n⚠️ Nie udało się zmienić szablonu strony."
+
+            messagebox.showinfo("Sukces", msg)
             if self.on_save_callback:
                 self.on_save_callback()
             self.destroy()
