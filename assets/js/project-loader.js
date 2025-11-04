@@ -17,16 +17,26 @@ const ProjectLoader = (function() {
      * @returns {Promise<Object>} Dane projektu
      */
     async function loadProjectInfo() {
-        if (projectData) {
-            return projectData;
-        }
+        // USUNIĘTO CACHE - zawsze pobieraj świeże dane
+        // if (projectData) {
+        //     return projectData;
+        // }
 
         if (isLoading) {
             return loadPromise;
         }
 
         isLoading = true;
-        loadPromise = fetch('/api/project-info')
+        // Dodaj timestamp do URL aby wyłączyć cache
+        const cacheBuster = `?_=${new Date().getTime()}`;
+        loadPromise = fetch(`/api/project-info${cacheBuster}`, {
+                cache: 'no-store',  // Wyłącz cache przeglądarki
+                headers: {
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache',
+                    'Expires': '0'
+                }
+            })
             .then(response => {
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
