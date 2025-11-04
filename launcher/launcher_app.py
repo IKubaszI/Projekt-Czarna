@@ -2406,8 +2406,8 @@ class ProjectFormDialog(tk.Toplevel):
         fields = [
             ("short_code", "Krótki Kod (np. 'czarna'):", "short_code"),
             ("nazwa", "Nazwa (np. 'Czarna'):", "nazwa"),
-            ("pelna_nazwa", "Pełna Nazwa:", "pelna_nazwa"),
-            ("kontekst_czasowy", "Kontekst Czasowy (np. 'XIX wiek'):", "kontekst_czasowy"),
+            ("pelna_nazwa", "Pełna Nazwa (np. 'Gmina Czarna'):", "pelna_nazwa"),
+            ("okres", "Okres (np. 'XIX', 'XX'):", "okres"),
             ("rok_zrodlowy", "Rok Źródłowy:", "rok_zrodlowy"),
             ("okres_danych", "Okres Danych (np. '1850-1900'):", "okres_danych"),
             ("region", "Powiat (np. 'Powiat Pilźnieński'):", "region"),
@@ -2416,17 +2416,33 @@ class ProjectFormDialog(tk.Toplevel):
         ]
 
         self.entries = {}
+        current_row = 0
+
         for i, (key, label, field_name) in enumerate(fields):
             ttk.Label(main_frame, text=label).grid(row=i, column=0, sticky="w", pady=5)
             entry = ttk.Entry(main_frame, width=40)
             entry.grid(row=i, column=1, sticky="ew", pady=5)
             self.entries[key] = entry
+            current_row = i + 1
+
+        # Dropdown dla typu strony
+        ttk.Label(main_frame, text="Typ Strony:").grid(row=current_row, column=0, sticky="w", pady=5)
+        self.typ_strony_var = tk.StringVar(value="projekt_inzynierski")
+        typ_strony_combo = ttk.Combobox(
+            main_frame,
+            textvariable=self.typ_strony_var,
+            values=["projekt_inzynierski", "standardowa"],
+            state='readonly',
+            width=37
+        )
+        typ_strony_combo.grid(row=current_row, column=1, sticky="ew", pady=5)
+        current_row += 1
 
         main_frame.columnconfigure(1, weight=1)
 
         # Przyciski
         buttons_frame = ttk.Frame(main_frame)
-        buttons_frame.grid(row=len(fields), column=0, columnspan=2, pady=(20, 0))
+        buttons_frame.grid(row=current_row, column=0, columnspan=2, pady=(20, 0))
 
         ttk.Button(buttons_frame, text="💾 Zapisz", command=self.save,
                   style="Success.TButton").pack(side=tk.LEFT, padx=5)
@@ -2439,6 +2455,10 @@ class ProjectFormDialog(tk.Toplevel):
             value = self.project.get(key, '')
             entry.insert(0, str(value) if value else '')
 
+        # Wypełnij typ strony
+        if 'typ_strony' in self.project:
+            self.typ_strony_var.set(self.project['typ_strony'])
+
     def save(self):
         """Zapisuje projekt."""
         data = {}
@@ -2448,6 +2468,15 @@ class ProjectFormDialog(tk.Toplevel):
                 data[key] = int(value) if value and value.isdigit() else None
             else:
                 data[key] = value if value else None
+
+        # Dodaj typ strony
+        data['typ_strony'] = self.typ_strony_var.get()
+
+        # Wygeneruj kontekst_czasowy z okresu (dla kompatybilności wstecznej)
+        if data.get('okres'):
+            data['kontekst_czasowy'] = f"{data['okres']} wiek"
+        else:
+            data['kontekst_czasowy'] = None
 
         # Walidacja
         if not data.get('short_code') or not data.get('nazwa'):
@@ -2464,26 +2493,26 @@ class ProjectFormDialog(tk.Toplevel):
                     # Dodawanie
                     cur.execute("""
                         INSERT INTO projects (
-                            short_code, nazwa, pelna_nazwa, kontekst_czasowy,
-                            rok_zrodlowy, okres_danych, region, wojewodztwo, db_name
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            short_code, nazwa, pelna_nazwa, okres, kontekst_czasowy,
+                            rok_zrodlowy, okres_danych, region, wojewodztwo, db_name, typ_strony
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
                         data['short_code'], data['nazwa'], data['pelna_nazwa'],
-                        data['kontekst_czasowy'], data['rok_zrodlowy'], data['okres_danych'],
-                        data['region'], data['wojewodztwo'], data['db_name']
+                        data['okres'], data['kontekst_czasowy'], data['rok_zrodlowy'], data['okres_danych'],
+                        data['region'], data['wojewodztwo'], data['db_name'], data['typ_strony']
                     ))
                 else:
                     # Edycja
                     cur.execute("""
                         UPDATE projects SET
                             short_code = %s, nazwa = %s, pelna_nazwa = %s,
-                            kontekst_czasowy = %s, rok_zrodlowy = %s, okres_danych = %s,
-                            region = %s, wojewodztwo = %s, db_name = %s
+                            okres = %s, kontekst_czasowy = %s, rok_zrodlowy = %s, okres_danych = %s,
+                            region = %s, wojewodztwo = %s, db_name = %s, typ_strony = %s
                         WHERE id = %s
                     """, (
                         data['short_code'], data['nazwa'], data['pelna_nazwa'],
-                        data['kontekst_czasowy'], data['rok_zrodlowy'], data['okres_danych'],
-                        data['region'], data['wojewodztwo'], data['db_name'],
+                        data['okres'], data['kontekst_czasowy'], data['rok_zrodlowy'], data['okres_danych'],
+                        data['region'], data['wojewodztwo'], data['db_name'], data['typ_strony'],
                         self.project['id']
                     ))
 
