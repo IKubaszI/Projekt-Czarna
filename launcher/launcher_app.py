@@ -41,7 +41,7 @@ def get_active_project_from_db():
     try:
         db_config = get_db_config_from_env()
         conn = psycopg2.connect(**db_config)
-        conn.set_client_encoding('UTF8')  # Ustaw kodowanie UTF-8 dla połączenia
+        conn.set_client_encoding('UTF8')
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 SELECT * FROM projects
@@ -51,8 +51,11 @@ def get_active_project_from_db():
             project = cur.fetchone()
         conn.close()
         return dict(project) if project else None
+    except psycopg2.OperationalError:
+        print(f"❌ Nie można połączyć z bazą danych (sprawdź hasło i dane w .env)")
+        return None
     except Exception as e:
-        print(f"❌ Błąd pobierania aktywnego projektu: {e}")
+        print(f"❌ Błąd: {e}")
         return None
 
 def get_all_projects_from_db():
@@ -71,8 +74,11 @@ def get_all_projects_from_db():
 
         conn.close()
         return [dict(p) for p in projects] if projects else []
+    except psycopg2.OperationalError:
+        print(f"❌ Nie można połączyć z bazą danych (sprawdź hasło i dane w .env)")
+        return []
     except Exception as e:
-        print(f"❌ Błąd pobierania projektów: {e}")
+        print(f"❌ Błąd: {e}")
         return []
 
 def switch_project_in_db(project_id):
@@ -80,7 +86,7 @@ def switch_project_in_db(project_id):
     try:
         db_config = get_db_config_from_env()
         conn = psycopg2.connect(**db_config)
-        conn.set_client_encoding('UTF8')  # Ustaw kodowanie UTF-8 dla połączenia
+        conn.set_client_encoding('UTF8')
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             # Dezaktywuj wszystkie
             cur.execute("UPDATE projects SET is_active = false;")
@@ -98,8 +104,11 @@ def switch_project_in_db(project_id):
         if project:
             load_project_env(project['nazwa'])
         return dict(project) if project else None
+    except psycopg2.OperationalError:
+        print(f"❌ Nie można połączyć z bazą danych (sprawdź hasło i dane w .env)")
+        return None
     except Exception as e:
-        print(f"❌ Błąd przełączania projektu: {e}")
+        print(f"❌ Błąd: {e}")
         return None
 
 def get_project_backup_folder(project_name=None):
@@ -198,38 +207,15 @@ ICONS_SCAN_FOLDERS = [
 # =============================================================================
 
 def read_env_config(key_prefix=None):
-    """Odczytuje konfigurację z pliku .env z obsługą różnych kodowań."""
+    """Odczytuje konfigurację z pliku .env."""
     env_path = os.path.join(BACKEND_DIR, ".env")
     config = {}
 
     if not os.path.exists(env_path):
         return config
 
-    # Lista kodowań do sprawdzenia w kolejności
-    encodings_to_try = ['utf-8', 'cp1250', 'windows-1250', 'latin1', 'iso-8859-2']
-
-    for encoding in encodings_to_try:
-        try:
-            with open(env_path, 'r', encoding=encoding, errors='strict') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#') and '=' in line:
-                        key, value = line.split('=', 1)
-                        key, value = key.strip(), value.strip()
-                        if not key_prefix or key.startswith(key_prefix):
-                            config[key] = value
-            # Jeśli udało się odczytać, przerwij pętlę
-            return config
-        except (UnicodeDecodeError, UnicodeError):
-            # Spróbuj następnego kodowania
-            continue
-        except Exception as e:
-            print(f"Błąd odczytu .env z kodowaniem {encoding}: {e}")
-            continue
-
-    # Jeśli żadne kodowanie nie zadziałało, spróbuj z ignore
     try:
-        with open(env_path, 'r', encoding='utf-8', errors='ignore') as f:
+        with open(env_path, 'r', encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith('#') and '=' in line:
@@ -238,7 +224,7 @@ def read_env_config(key_prefix=None):
                     if not key_prefix or key.startswith(key_prefix):
                         config[key] = value
     except Exception as e:
-        print(f"Ostateczny błąd odczytu .env: {e}")
+        print(f"⚠️ Błąd odczytu .env: {e}")
 
     return config
 
@@ -532,11 +518,9 @@ def _save_favicon_to_database(filename):
     conn = None
     try:
         db_cfg = get_db_config_from_env()
-
-        # Ustaw połączenie z jawnym kodowaniem
         conn = psycopg2.connect(**db_cfg)
-        conn.set_client_encoding('UTF8')  # Wymuś kodowanie UTF-8
-        
+        conn.set_client_encoding('UTF8')
+
         with conn.cursor() as cur:
             rel_path = os.path.join("site", filename).replace("\\", "/")
             cur.execute(
@@ -547,37 +531,13 @@ def _save_favicon_to_database(filename):
             )
             conn.commit()
             print(f"✅ Zapisano favicon do bazy danych: {rel_path}")
-    
-    except (psycopg2.Error, psycopg2.OperationalError) as e:
-        print(f"ℹ️ Nie można zapisać favicon do bazy danych: {e}")
-        # Spróbuj połączyć się z podstawową konfiguracją bez czytania z .env
-        try:
-            conn = psycopg2.connect(
-                host="localhost",
-                dbname="mapa_czarna_db",
-                user="postgres",
-                password="1234",
-                port="5432"
-            )
-            conn.set_client_encoding('UTF8')
-            with conn.cursor() as cur:
-                rel_path = os.path.join("site", filename).replace("\\", "/")
-                cur.execute(
-                    "INSERT INTO konfiguracja_systemu (klucz, wartosc, opis) "
-                    "VALUES ('site_favicon', %s, %s) "
-                    "ON CONFLICT (klucz) DO UPDATE SET wartosc = EXCLUDED.wartosc;",
-                    (json.dumps({"path": rel_path}), "Ścieżka do ikony witryny (favicon)")
-                )
-                conn.commit()
-                print(f"✅ Zapisano favicon do bazy danych z konfiguracją domyślną: {rel_path}")
-        except Exception as e2:
-            print(f"⚠️ Nie można zapisać favicon do bazy: {e2}")
-    except UnicodeDecodeError as e:
-        print(f"❌ Błąd kodowania przy zapisywaniu favicon: {e}")
+
+    except psycopg2.OperationalError:
+        print(f"❌ Nie można połączyć z bazą danych (sprawdź hasło i dane w .env)")
     except Exception as e:
-        print(f"❌ Nieoczekiwany błąd przy zapisywaniu favicon: {e}")
+        print(f"❌ Błąd przy zapisywaniu favicon: {e}")
     finally:
-        if 'conn' in locals() and conn:
+        if conn:
             conn.close()
 
 def check_backup_folder_files():
