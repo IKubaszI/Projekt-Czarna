@@ -2519,42 +2519,82 @@ class ProjectFormDialog(tk.Toplevel):
             conn.set_client_encoding('UTF8')
 
             with conn.cursor() as cur:
+                # Sprawdź czy kolumny okres i typ_strony istnieją
+                cur.execute("""
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'projects' AND column_name IN ('okres', 'typ_strony')
+                """)
+                existing_columns = [row[0] for row in cur.fetchall()]
+                has_new_columns = 'okres' in existing_columns and 'typ_strony' in existing_columns
+
                 if self.mode == "add":
-                    # Dodawanie
-                    cur.execute("""
-                        INSERT INTO projects (
-                            short_code, nazwa, pelna_nazwa, okres, kontekst_czasowy,
-                            rok_zrodlowy, okres_danych, region, wojewodztwo, db_name, typ_strony
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (
-                        data['short_code'], data['nazwa'], data['pelna_nazwa'],
-                        data['okres'], data['kontekst_czasowy'], data['rok_zrodlowy'], data['okres_danych'],
-                        data['region'], data['wojewodztwo'], data['db_name'], data['typ_strony']
-                    ))
+                    if has_new_columns:
+                        # Nowa wersja z okres i typ_strony
+                        cur.execute("""
+                            INSERT INTO projects (
+                                short_code, nazwa, pelna_nazwa, okres, kontekst_czasowy,
+                                rok_zrodlowy, okres_danych, region, wojewodztwo, db_name, typ_strony
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (
+                            data['short_code'], data['nazwa'], data['pelna_nazwa'],
+                            data['okres'], data['kontekst_czasowy'], data['rok_zrodlowy'], data['okres_danych'],
+                            data['region'], data['wojewodztwo'], data['db_name'], data['typ_strony']
+                        ))
+                    else:
+                        # Stara wersja bez okres i typ_strony
+                        cur.execute("""
+                            INSERT INTO projects (
+                                short_code, nazwa, pelna_nazwa, kontekst_czasowy,
+                                rok_zrodlowy, okres_danych, region, wojewodztwo, db_name
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (
+                            data['short_code'], data['nazwa'], data['pelna_nazwa'],
+                            data['kontekst_czasowy'], data['rok_zrodlowy'], data['okres_danych'],
+                            data['region'], data['wojewodztwo'], data['db_name']
+                        ))
                 else:
-                    # Edycja
-                    cur.execute("""
-                        UPDATE projects SET
-                            short_code = %s, nazwa = %s, pelna_nazwa = %s,
-                            okres = %s, kontekst_czasowy = %s, rok_zrodlowy = %s, okres_danych = %s,
-                            region = %s, wojewodztwo = %s, db_name = %s, typ_strony = %s
-                        WHERE id = %s
-                    """, (
-                        data['short_code'], data['nazwa'], data['pelna_nazwa'],
-                        data['okres'], data['kontekst_czasowy'], data['rok_zrodlowy'], data['okres_danych'],
-                        data['region'], data['wojewodztwo'], data['db_name'], data['typ_strony'],
-                        self.project['id']
-                    ))
+                    if has_new_columns:
+                        # Nowa wersja - UPDATE z okres i typ_strony
+                        cur.execute("""
+                            UPDATE projects SET
+                                short_code = %s, nazwa = %s, pelna_nazwa = %s,
+                                okres = %s, kontekst_czasowy = %s, rok_zrodlowy = %s, okres_danych = %s,
+                                region = %s, wojewodztwo = %s, db_name = %s, typ_strony = %s
+                            WHERE id = %s
+                        """, (
+                            data['short_code'], data['nazwa'], data['pelna_nazwa'],
+                            data['okres'], data['kontekst_czasowy'], data['rok_zrodlowy'], data['okres_danych'],
+                            data['region'], data['wojewodztwo'], data['db_name'], data['typ_strony'],
+                            self.project['id']
+                        ))
+                    else:
+                        # Stara wersja - UPDATE bez okres i typ_strony
+                        cur.execute("""
+                            UPDATE projects SET
+                                short_code = %s, nazwa = %s, pelna_nazwa = %s,
+                                kontekst_czasowy = %s, rok_zrodlowy = %s, okres_danych = %s,
+                                region = %s, wojewodztwo = %s, db_name = %s
+                            WHERE id = %s
+                        """, (
+                            data['short_code'], data['nazwa'], data['pelna_nazwa'],
+                            data['kontekst_czasowy'], data['rok_zrodlowy'], data['okres_danych'],
+                            data['region'], data['wojewodztwo'], data['db_name'],
+                            self.project['id']
+                        ))
 
                 conn.commit()
 
             conn.close()
 
-            # Zastosuj odpowiedni szablon strony
-            if apply_page_template(data['typ_strony']):
-                msg = f"Miejscowość została zapisana.\n\nZastosowano szablon strony: {data['typ_strony']}"
+            # Zastosuj odpowiedni szablon strony (tylko jeśli mamy nowe kolumny)
+            if has_new_columns:
+                if apply_page_template(data['typ_strony']):
+                    msg = f"Miejscowość została zapisana.\n\nZastosowano szablon strony: {data['typ_strony']}"
+                else:
+                    msg = "Miejscowość została zapisana.\n\n⚠️ Nie udało się zmienić szablonu strony."
             else:
-                msg = "Miejscowość została zapisana.\n\n⚠️ Nie udało się zmienić szablonu strony."
+                msg = "Miejscowość została zapisana.\n\n⚠️ Uruchom migrację SQL aby używać szablonów stron."
 
             messagebox.showinfo("Sukces", msg)
             if self.on_save_callback:
