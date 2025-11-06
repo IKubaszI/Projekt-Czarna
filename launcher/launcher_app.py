@@ -2194,7 +2194,7 @@ class AppLauncher(tk.Tk):
         ttk.Button(location_controls, text="⚙️ Zarządzaj Miejscowościami", command=self.open_location_manager,
                   style="Primary.TButton").pack(side=tk.LEFT, padx=5)
 
-        ttk.Button(location_controls, text="🔧 Zarządzanie Bazą Danych", command=self.open_database_wizard,
+        ttk.Button(location_controls, text="🔧 Kreator Bazy Danych", command=self.open_database_wizard,
                   style="Info.TButton").pack(side=tk.LEFT, padx=5)
 
         self.refresh_locations()
@@ -2478,10 +2478,10 @@ class AppLauncher(tk.Tk):
         self.refresh_locations()
 
     def open_database_wizard(self):
-        """Otwiera narzędzie zarządzania bazą danych PostgreSQL."""
+        """Otwiera kreator konfiguracji bazy danych PostgreSQL."""
         wizard = DatabaseWizard(self)
         self.wait_window(wizard)
-        # Po zamknięciu narzędzia odśwież listę miejscowości (w razie nowej konfiguracji)
+        # Po zamknięciu kreatora odśwież listę miejscowości (w razie nowej konfiguracji)
         self.refresh_locations()
 
     def open_backup_manager(self):
@@ -3444,15 +3444,15 @@ class TemplateChangeDialog(tk.Toplevel):
 
 
 class DatabaseWizard(tk.Toplevel):
-    """Narzędzie do zarządzania bazą danych PostgreSQL"""
+    """Kreator konfiguracji bazy danych PostgreSQL"""
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.title("🔧 Zarządzanie Bazą Danych")
+        self.title("🔧 Kreator Bazy Danych")
 
         # Ustawienie większego rozmiaru okna z możliwością zmiany rozmiaru
         width = 800
-        height = 800
+        height = 700
         self.geometry(f"{width}x{height}")
         self.minsize(width, height)  # Minimalne wymiary okna
         self.transient(parent)
